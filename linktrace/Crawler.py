@@ -252,6 +252,14 @@ class Crawler:
                 doc.response_headers = cached.response_headers
                 return doc
 
+        # Check robots.txt before fetching
+        if self.respect_robots_txt and self.robots_manager:
+            if not await self.robots_manager.is_allowed(url):
+                self._logger.info(f"Disallowed by robots.txt: {url}")
+                doc = Document(url, None)
+                doc.status_code = 403
+                return doc
+
         # Get effective delay (robots.txt or configured)
         if self.respect_robots_txt and self.robots_manager:
             delay = await self.robots_manager.get_crawl_delay(url)

@@ -14,7 +14,7 @@ Lightweight async web crawler for link analysis and HTML document processing.
 - 🔄 **Persistent sessions** — Connection pooling for 10-100x faster same-domain crawls
 - 🔁 **Retries + backoff** — Exponential backoff for transient errors (timeouts, 5xx)
 - ⏱️ **Rate limiting** — Per-domain rate limiting with asyncio.Lock, no thundering herd
-- 🤖 **robots.txt support** — Automatically respect Crawl-delay directives per domain
+- 🤖 **robots.txt support** — Automatically respect Crawl-delay directives and Disallow rules per domain
 - 🔍 **Broken link tracking** — Audit 404s and 5xx errors for site structure validation
 - 💾 **Optional caching** — Disk-based cache (1-day TTL) for repeat crawls
 - 🔐 **SSL verification** — Secure by default, with corporate proxy support
@@ -186,7 +186,7 @@ Use DFS for deep hierarchies (documentation sites, nested directories). Use BFS 
 
 ### Rate Limiting & robots.txt
 
-By default, linktrace automatically respects robots.txt `Crawl-delay` directives and enforces per-domain rate limiting:
+By default, linktrace automatically respects robots.txt `Crawl-delay` directives and `Disallow` rules, enforcing per-domain rate limiting:
 
 ```python
 # Automatic robots.txt respect (default)
