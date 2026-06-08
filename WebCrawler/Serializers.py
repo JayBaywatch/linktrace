@@ -9,7 +9,7 @@ from WebCrawler.Crawler import Document
 class Serializers:
     """Export documents with flattened links and rich metadata."""
 
-    def __init__(self, documents: list[Document]):
+    def __init__(self, documents: list[Document]) -> None:
         """Initialize with a list of crawled documents.
 
         Args:
@@ -114,7 +114,7 @@ class Serializers:
         if not rows:
             return pa.table({})
 
-        columns = {}
+        columns: dict[str, list[object]] = {}
         for row in rows:
             for key, value in row.items():
                 if key not in columns:

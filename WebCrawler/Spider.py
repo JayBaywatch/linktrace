@@ -1,23 +1,24 @@
 import asyncio
 import logging
+from typing import Literal
 
-from WebCrawler.Crawler import Crawler
+from WebCrawler.Crawler import Crawler, Document
 
 
 class Spider:
     def __init__(
         self,
-        start_url,
-        max_depth=3,
-        debug=False,
-        log_name=None,
-        ssl_verify=True,
-        verify_hostname=True,
-        request_timeout=30,
-        cache_dir=None,
-        max_retries=3,
-        traversal_strategy="bfs",
-    ):
+        start_url: str,
+        max_depth: int = 3,
+        debug: bool = False,
+        log_name: str | None = None,
+        ssl_verify: bool | str = True,
+        verify_hostname: bool = True,
+        request_timeout: int = 30,
+        cache_dir: str | None = None,
+        max_retries: int = 3,
+        traversal_strategy: Literal["bfs", "dfs"] = "bfs",
+    ) -> None:
         self.start_url = start_url
         self.max_depth = max_depth
         self.ssl_verify = ssl_verify  # bool or str(path to CA cert)
@@ -33,9 +34,9 @@ class Spider:
             )
         self.traversal_strategy = traversal_strategy
 
-        self.visited = set()
+        self.visited: set[str] = set()
         self.to_visit = [(start_url, 0)]
-        self.documents = []
+        self.documents: list[Document] = []
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(logging.DEBUG)
         self.visited_count = 0
@@ -55,7 +56,7 @@ class Spider:
         ch.setFormatter(formatter)
         self._logger.addHandler(ch)
 
-    async def run_async(self):
+    async def run_async(self) -> list[Document]:
         """Run the spider with persistent session."""
         async with Crawler(
             log_name=self._logger.name,
@@ -77,7 +78,9 @@ class Spider:
             await asyncio.gather(*tasks)
         return self.documents
 
-    async def crawl_and_collect(self, url, current_depth, crawler):
+    async def crawl_and_collect(
+        self, url: str, current_depth: int, crawler: Crawler
+    ) -> None:
         """Crawl a URL and collect internal links."""
         try:
             doc = await crawler.crawl_document_async(url)
@@ -96,31 +99,9 @@ class Spider:
         except Exception as e:
             self._logger.error(f"Failed to crawl {url}: {e}")
 
-    def track_visits(self, url, doc):
+    def track_visits(self, url: str, doc: Document) -> None:
         self.documents.append(doc)
         self.visited.add(url)
-
-    def run(self):
-        while self.to_visit:
-            idx = 0 if self.traversal_strategy == "bfs" else -1
-            url, current_depth = self.to_visit.pop(idx)
-            if url in self.visited or current_depth > self.max_depth:
-                continue
-
-            try:
-                doc = self.crawler.crawl_document(url)
-                self.track_visits(url, doc)
-                self._logger.info(f"Visited: {url}")
-
-                # Add internal links to the queue
-                for link in doc.internal_links:
-                    if link.url not in self.visited:
-                        self.to_visit.append((link.url, current_depth + 1))
-
-            except Exception as e:
-                self._logger.error(f"Failed to crawl {url}: {e}")
-
-        return self.documents
 
 
 if __name__ == "__main__":

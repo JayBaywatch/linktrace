@@ -2,13 +2,16 @@
 
 import hashlib
 import json
+import time
 from pathlib import Path
 
 
 class CachedResponse:
     """Cached HTTP response data."""
 
-    def __init__(self, status_code: int, response_headers: dict, content: str):
+    def __init__(
+        self, status_code: int, response_headers: dict[str, str], content: str
+    ) -> None:
         self.status_code = status_code
         self.response_headers = response_headers
         self.content = content
@@ -17,7 +20,7 @@ class CachedResponse:
 class ResponseCache:
     """Disk-based response cache with TTL support."""
 
-    def __init__(self, cache_dir: str, ttl_seconds: int = 86400):
+    def __init__(self, cache_dir: str, ttl_seconds: int = 86400) -> None:
         """Initialize cache.
 
         Args:
@@ -54,8 +57,6 @@ class ResponseCache:
                 data = json.load(f)
 
             # Check TTL
-            import time
-
             age = time.time() - data["timestamp"]
             if age > self.ttl:
                 cache_file.unlink()  # Delete expired cache
@@ -72,7 +73,7 @@ class ResponseCache:
             return None
 
     async def set(
-        self, url: str, status_code: int, headers: dict, content: str
+        self, url: str, status_code: int, headers: dict[str, str], content: str
     ) -> None:
         """Store response in cache.
 
@@ -83,8 +84,6 @@ class ResponseCache:
             content: Response body text
         """
         cache_file = self._cache_path(url)
-
-        import time
 
         data = {
             "url": url,

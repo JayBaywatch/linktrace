@@ -11,64 +11,65 @@ from WebCrawler.cache import ResponseCache
 
 
 class HtmlLink:
-    def __init__(self, url, text):
+    def __init__(self, url: str, text: str) -> None:
         self.url = url
         self.text = text
 
     @property
-    def schema(self):
+    def schema(self) -> str:
         return urlparse(self.url).scheme
 
     @property
-    def description(self):
+    def description(self) -> str:
         return self.text
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"htmllink(url={self.url!r})"
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.url)
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, HtmlLink):
             return self.url == other.url
         return self.url == other
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         return not self.__eq__(other)
 
-    def __lt__(self, other):
+    def __lt__(self, other: "HtmlLink | str") -> bool:
         return self.url < (other.url if isinstance(other, HtmlLink) else other)
 
-    def __gt__(self, other):
+    def __gt__(self, other: "HtmlLink | str") -> bool:
         return self.url > (other.url if isinstance(other, HtmlLink) else other)
 
 
 class Document:
-    def __init__(self, url, source):
+    def __init__(self, url: str, source: str | None) -> None:
         self.url = url
         self.source = source
-        self.title = ""
-        self.internal_links = []
-        self.external_links = []
-        self.links = []
-        self.status_code = 0
-        self.response_headers = {}
+        self.title: str = ""
+        self.internal_links: list[HtmlLink] = []
+        self.external_links: list[HtmlLink] = []
+        self.links: list[HtmlLink] = []
+        self.status_code: int = 0
+        self.response_headers: dict[str, str] = {}
+        self.dom: object = None
 
     @property
-    def domain(self):
+    def domain(self) -> str:
         return tldextract.extract(self.url).domain
 
 
 class CrawlException(Exception):
-    def __init__(self, url, msg, **kw):
+    def __init__(self, url: str, msg: str, **kw: object) -> None:
         self.url = url
         self.message = msg
         super().__init__(url, msg, **kw)
 
 
 class BrokenLink(HtmlLink):
-    def __init__(self, url, status):
+    def __init__(self, url: str, status: int) -> None:
         self.status_code = status
         super().__init__(url, str(status))
 
@@ -76,47 +77,54 @@ class BrokenLink(HtmlLink):
 class Crawler:
     def __init__(
         self,
-        log_level=logging.DEBUG,
-        log_name=None,
-        ssl_verify=True,
-        verify_hostname=True,
-        request_timeout=30,
-        cache_dir=None,
-        max_retries=3,
-        backoff_factor=2,
-    ):
+        log_level: int = logging.DEBUG,
+        log_name: str | None = None,
+        ssl_verify: bool | str = True,
+        verify_hostname: bool = True,
+        request_timeout: int = 30,
+        cache_dir: str | None = None,
+        max_retries: int = 3,
+        backoff_factor: int = 2,
+    ) -> None:
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(log_level)
-        self.visited_urls = set()
-        self._queue = []
-        self._links = []
-        self._broken_links = []
+        self.visited_urls: set[str] = set()
+        self._queue: list[str] = []
+        self._links: list[HtmlLink] = []
+        self._broken_links: list[BrokenLink] = []
 
         # Session configuration
-        self.session = None
-        self.ssl_verify = ssl_verify  # bool or str(path to CA cert)
-        self.verify_hostname = verify_hostname
-        self.request_timeout = request_timeout
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
+        self.session: aiohttp.ClientSession | None = None
+        self.ssl_verify: bool | str = ssl_verify  # bool or str(path to CA cert)
+        self.verify_hostname: bool = verify_hostname
+        self.request_timeout: int = request_timeout
+        self.max_retries: int = max_retries
+        self.backoff_factor: int = backoff_factor
 
         # Caching (opt-in)
-        self.cache = ResponseCache(cache_dir) if cache_dir else None
+        self.cache: ResponseCache | None = (
+            ResponseCache(cache_dir) if cache_dir else None
+        )
 
         # Cookies handled automatically via CookieJar in session (created lazily)
-        self._cookie_jar = None
+        self._cookie_jar: aiohttp.CookieJar | None = None
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "Crawler":
         """Enter async context manager: create and setup session."""
         self.session = await self._create_session()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None:
         """Exit async context manager: cleanup session."""
         if self.session:
             await self.session.close()
 
-    async def _create_session(self):
+    async def _create_session(self) -> aiohttp.ClientSession:
         """Create persistent aiohttp session with SSL context, connector, timeouts."""
         # Create cookie jar now (requires event loop)
         if self._cookie_jar is None:
@@ -139,7 +147,7 @@ class Crawler:
 
         return session
 
-    def _build_ssl_context(self):
+    def _build_ssl_context(self) -> ssl.SSLContext:
         """Build SSL context with flexible verification options.
 
         Supports:
@@ -180,7 +188,7 @@ class Crawler:
 
         return context
 
-    async def crawl_document_async(self, url):
+    async def crawl_document_async(self, url: str) -> Document | None:
         """Fetch and parse a document with retries, with optional caching."""
         if not self.session:
             raise RuntimeError(
@@ -251,7 +259,7 @@ class Crawler:
 
         return None
 
-    def parse_document(self, url, source):
+    def parse_document(self, url: str, source: str | None) -> Document:
         self._protocol_ = urlparse(url).scheme if not urlparse(url).scheme else "http"
         self.base_uri = urlparse(url).netloc
 
@@ -320,13 +328,13 @@ class Crawler:
 
         return doc
 
-    def relative_to_full(self, url):
+    def relative_to_full(self, url: str) -> str:
         return urljoin(f"{self._protocol_}://{self.base_uri}", url)
 
-    def queue_link(self, link):
+    def queue_link(self, link: str) -> None:
         if link not in self.visited_urls and link not in self._queue:
             self._queue.append(link)
 
     @staticmethod
-    def get_domain_parts(url):
+    def get_domain_parts(url: str) -> str:
         return urlparse(url).netloc
