@@ -1,0 +1,19 @@
+# Run `uv run pre-commit install` once to enable. Hooks run on `git commit`.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.16
+    hooks:
+      # Lint + autofix anything safe (sorts imports, removes unused, etc.)
+      - id: ruff
+        args: [--fix]
+      # Format (black-compatible)
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run pytest -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [commit]

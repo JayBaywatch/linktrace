@@ -1,0 +1,31 @@
+
+version: 1
+logging: !!python/object:pyconfig.schema.Logging
+  loggers:
+    query_review:
+      level: DEBUG
+      handlers:
+        - console
+        - var
+        - query_log
+  handlers:
+    var:
+      class: logging.StreamHandler
+      level: INFO
+      formatter: default
+      stream: io.StringIO
+    console:
+      class: logging.StreamHandler
+      level: INFO
+      formatter: default
+      stream: ext://sys.stdout
+    query_log:
+      class: logging.FileHandler
+      level: INFO
+      formatter: default
+      filename: crawler.log
+      mode: w+
+  formatters:
+    default:
+      format: "%(asctime)s:%(levelname)s:%(funcName)s:%(message)s"
+      datefmt: "%Y-%m-%d %H:%M:%S"
