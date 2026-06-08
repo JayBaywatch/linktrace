@@ -40,3 +40,36 @@ build:
 # Remove the virtualenv and caches
 clean:
     rm -rf .venv __pycache__ */__pycache__ .ruff_cache
+
+# Release a new version (creates tag and pushes to GitHub)
+release version:
+    #!/usr/bin/env bash
+    set -e
+    echo "📦 Releasing linktrace v{{version}}"
+
+    # Verify version format
+    if ! [[ {{version}} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "❌ Invalid version format. Use: just release 0.1.0"
+        exit 1
+    fi
+
+    # Update version in pyproject.toml
+    sed -i '' "s/version = \".*\"/version = \"{{version}}\"/" pyproject.toml
+    echo "✅ Updated version in pyproject.toml"
+
+    # Commit version bump
+    git add pyproject.toml
+    git commit -m "Bump version to {{version}}"
+    echo "✅ Committed version bump"
+
+    # Create and push tag
+    git tag "v{{version}}"
+    git push origin main
+    git push origin "v{{version}}"
+    echo "✅ Pushed to GitHub"
+
+    echo ""
+    echo "🎉 Next step: Create release on GitHub"
+    echo "   https://github.com/JayBaywatch/webcrawler/releases/new?tag=v{{version}}"
+    echo ""
+    echo "   This will trigger GitHub Actions to publish to PyPI automatically!"
