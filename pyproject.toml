@@ -44,7 +44,7 @@ dev = [
 packages = ["linktrace"]
 
 [tool.ruff]
-target-version = "0.2.2"
+target-version = "py312"
 line-length = 88
 
 [tool.ruff.lint]
@@ -82,7 +82,7 @@ precision = 2
 directory = "htmlcov"
 
 [tool.mypy]
-python_version = "0.2.2"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
