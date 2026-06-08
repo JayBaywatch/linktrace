@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 from WebCrawler.Crawler import Crawler, Document
 
@@ -18,6 +18,7 @@ class Spider:
         cache_dir: str | None = None,
         max_retries: int = 3,
         traversal_strategy: Literal["bfs", "dfs"] = "bfs",
+        show_progress: bool = False,
     ) -> None:
         self.start_url = start_url
         self.max_depth = max_depth
@@ -33,6 +34,7 @@ class Spider:
                 "Must be 'bfs' (breadth-first) or 'dfs' (depth-first)."
             )
         self.traversal_strategy = traversal_strategy
+        self.show_progress = show_progress
 
         self.visited: set[str] = set()
         self.to_visit = [(start_url, 0)]
@@ -47,6 +49,8 @@ class Spider:
             f"max_depth={max_depth}"
         )
 
+        self._pbar: Any = None
+
         # Add console handler to logger
         ch = logging.StreamHandler()
         ch.setLevel(logging.DEBUG)
@@ -58,24 +62,41 @@ class Spider:
 
     async def run_async(self) -> list[Document]:
         """Run the spider with persistent session."""
-        async with Crawler(
-            log_name=self._logger.name,
-            ssl_verify=self.ssl_verify,
-            verify_hostname=self.verify_hostname,
-            request_timeout=self.request_timeout,
-            cache_dir=self.cache_dir,
-            max_retries=self.max_retries,
-        ) as crawler:
-            tasks = []
-            while self.to_visit:
-                idx = 0 if self.traversal_strategy == "bfs" else -1
-                url, current_depth = self.to_visit.pop(idx)
-                if url in self.visited or current_depth > self.max_depth:
-                    continue
+        if self.show_progress:
+            from tqdm import tqdm
 
-                tasks.append(self.crawl_and_collect(url, current_depth, crawler))
+            self._pbar = tqdm(
+                desc="Crawling",
+                unit=" URLs",
+                dynamic_ncols=True,
+                position=0,
+                leave=True,
+            )
 
-            await asyncio.gather(*tasks)
+        try:
+            async with Crawler(
+                log_name=self._logger.name,
+                ssl_verify=self.ssl_verify,
+                verify_hostname=self.verify_hostname,
+                request_timeout=self.request_timeout,
+                cache_dir=self.cache_dir,
+                max_retries=self.max_retries,
+            ) as crawler:
+                tasks = []
+                while self.to_visit:
+                    idx = 0 if self.traversal_strategy == "bfs" else -1
+                    url, current_depth = self.to_visit.pop(idx)
+                    if url in self.visited or current_depth > self.max_depth:
+                        continue
+
+                    tasks.append(self.crawl_and_collect(url, current_depth, crawler))
+
+                await asyncio.gather(*tasks)
+        finally:
+            if self._pbar is not None:
+                self._pbar.close()
+                self._pbar = None
+
         return self.documents
 
     async def crawl_and_collect(
@@ -91,6 +112,14 @@ class Spider:
                     self._logger.info(
                         f"Visited: {url} (Total Visited: {self.visited_count})"
                     )
+                    if self._pbar is not None:
+                        self._pbar.update(1)
+                        self._pbar.set_postfix(
+                            {
+                                "visited": self.visited_count,
+                                "pending": len(self.to_visit),
+                            }
+                        )
                 # Add internal links to the queue
                 for link in doc.internal_links:
                     if link.url not in self.visited:

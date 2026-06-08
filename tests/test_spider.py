@@ -123,12 +123,18 @@ class TestTraversalValidation:
     def test_invalid_strategy_raises_error(self):
         """Verify invalid strategy raises ValueError."""
         with pytest.raises(ValueError, match="Invalid traversal_strategy"):
-            Spider(start_url="https://example.com", traversal_strategy="invalid")
+            Spider(
+                start_url="https://example.com",
+                traversal_strategy="invalid",  # type: ignore
+            )
 
     def test_invalid_strategy_message(self):
         """Verify error message guides user to valid options."""
         with pytest.raises(ValueError, match="'bfs'.*'dfs'"):
-            Spider(start_url="https://example.com", traversal_strategy="breadth")
+            Spider(
+                start_url="https://example.com",
+                traversal_strategy="breadth",  # type: ignore
+            )
 
 
 class TestTraversalQueueBehavior:
@@ -179,3 +185,42 @@ class TestTraversalLogging:
         """Verify DFS strategy is logged at debug level."""
         Spider(start_url="https://example.com", traversal_strategy="dfs")
         assert "strategy=DFS" in caplog.text
+
+
+class TestProgressTracking:
+    """Tests for progress bar functionality."""
+
+    def test_show_progress_default_false(self):
+        """Verify show_progress defaults to False."""
+        spider = Spider(start_url="https://example.com")
+        assert spider.show_progress is False
+
+    def test_show_progress_can_be_enabled(self):
+        """Verify show_progress can be set to True."""
+        spider = Spider(start_url="https://example.com", show_progress=True)
+        assert spider.show_progress is True
+
+    def test_pbar_initialized_none(self):
+        """Verify _pbar is initialized as None."""
+        spider = Spider(start_url="https://example.com")
+        assert spider._pbar is None
+
+    def test_show_progress_with_bfs(self):
+        """Verify show_progress works with BFS traversal."""
+        spider = Spider(
+            start_url="https://example.com",
+            traversal_strategy="bfs",
+            show_progress=True,
+        )
+        assert spider.show_progress is True
+        assert spider.traversal_strategy == "bfs"
+
+    def test_show_progress_with_dfs(self):
+        """Verify show_progress works with DFS traversal."""
+        spider = Spider(
+            start_url="https://example.com",
+            traversal_strategy="dfs",
+            show_progress=True,
+        )
+        assert spider.show_progress is True
+        assert spider.traversal_strategy == "dfs"
