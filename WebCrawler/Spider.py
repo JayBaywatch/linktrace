@@ -16,6 +16,7 @@ class Spider:
         request_timeout=30,
         cache_dir=None,
         max_retries=3,
+        traversal_strategy="bfs",
     ):
         self.start_url = start_url
         self.max_depth = max_depth
@@ -24,6 +25,14 @@ class Spider:
         self.request_timeout = request_timeout
         self.cache_dir = cache_dir
         self.max_retries = max_retries
+
+        if traversal_strategy not in ("bfs", "dfs"):
+            raise ValueError(
+                f"Invalid traversal_strategy '{traversal_strategy}'. "
+                "Must be 'bfs' (breadth-first) or 'dfs' (depth-first)."
+            )
+        self.traversal_strategy = traversal_strategy
+
         self.visited = set()
         self.to_visit = [(start_url, 0)]
         self.documents = []
@@ -31,6 +40,11 @@ class Spider:
         self._logger.setLevel(logging.DEBUG)
         self.visited_count = 0
         self.lock = asyncio.Lock()
+
+        self._logger.debug(
+            f"Spider initialized: strategy={self.traversal_strategy.upper()}, "
+            f"max_depth={max_depth}"
+        )
 
         # Add console handler to logger
         ch = logging.StreamHandler()
@@ -53,7 +67,8 @@ class Spider:
         ) as crawler:
             tasks = []
             while self.to_visit:
-                url, current_depth = self.to_visit.pop(0)
+                idx = 0 if self.traversal_strategy == "bfs" else -1
+                url, current_depth = self.to_visit.pop(idx)
                 if url in self.visited or current_depth > self.max_depth:
                     continue
 
@@ -87,7 +102,8 @@ class Spider:
 
     def run(self):
         while self.to_visit:
-            url, current_depth = self.to_visit.pop(0)
+            idx = 0 if self.traversal_strategy == "bfs" else -1
+            url, current_depth = self.to_visit.pop(idx)
             if url in self.visited or current_depth > self.max_depth:
                 continue
 

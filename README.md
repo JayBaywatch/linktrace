@@ -149,6 +149,24 @@ spider = Spider(
 )
 ```
 
+### Traversal Strategies: BFS vs DFS
+
+By default, Spider uses **breadth-first search (BFS)** — explores each depth level completely before going deeper.
+
+For **depth-first search (DFS)** — follows single paths all the way down:
+
+```python
+spider = Spider(
+    start_url="https://example.com",
+    max_depth=5,
+    traversal_strategy="dfs"  # Explore deep before broad
+)
+```
+
+**When to use each:**
+- **BFS (default)**: General site exploration, balanced memory use, finding many pages quickly, natural depth-limiting
+- **DFS**: Deep hierarchies (docs, nested directories), memory-efficient for wide/shallow sites, exploring complete subtrees, path-based traversal
+
 ### Export to JSON, Pandas, Polars, or PyArrow
 
 ```python
