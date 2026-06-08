@@ -4,6 +4,7 @@ import ssl
 from urllib.parse import urljoin, urlparse
 
 import aiohttp
+import lxml.etree
 import lxml.html
 import tldextract
 
@@ -206,7 +207,7 @@ class Crawler:
                 doc.response_headers = cached.response_headers
                 return doc
 
-        # Implement retry logic manually (tenacity works better with functions)
+        # Implement retry logic
         for attempt in range(self.max_retries):
             try:
                 async with self.session.get(url) as response:
