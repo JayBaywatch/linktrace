@@ -44,13 +44,13 @@ asyncio.run(main())
 ## Installation
 
 ```bash
-pip install webcrawler
+pip install linktrace
 ```
 
 **Optional export formats:**
 ```bash
-pip install webcrawler[serializers]  # pandas + polars + pyarrow
-pip install webcrawler[pandas]       # Just pandas
+pip install linktrace[serializers]  # pandas + polars + pyarrow
+pip install linktrace[pandas]       # Just pandas
 ```
 
 ## Core Concepts

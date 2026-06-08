@@ -285,7 +285,7 @@ print(f"Per page: {elapsed / len(documents):.2f}s")
 ```bash
 pip install pandas
 # or
-pip install webcrawler[pandas]
+pip install linktrace[pandas]
 ```
 
 ### "DataFrame is huge / running out of memory"

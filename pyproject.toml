@@ -37,7 +37,7 @@ dev = [
     "pyarrow>=14.0",
 ]
 
-# Distribution name is "webcrawler"; the import package is "WebCrawler" (the
+# Distribution name is "linktrace"; the import package is "WebCrawler" (the
 # subfolder), so point hatchling at it explicitly. data/ lives inside the
 # package and ships in the wheel automatically.
 [tool.hatch.build.targets.wheel]

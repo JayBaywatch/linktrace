@@ -5,25 +5,25 @@
 ### From PyPI
 
 ```bash
-pip install webcrawler
+pip install linktrace
 ```
 
 ### With Optional Export Formats
 
 ```bash
 # All three: pandas, polars, pyarrow
-pip install webcrawler[serializers]
+pip install linktrace[serializers]
 
 # Individual formats
-pip install webcrawler[pandas]
-pip install webcrawler[polars]
-pip install webcrawler[pyarrow]
+pip install linktrace[pandas]
+pip install linktrace[polars]
+pip install linktrace[pyarrow]
 ```
 
 ### Development Installation
 
 ```bash
-git clone https://github.com/yourusername/webcrawler
+git clone https://github.com/JayBaywatch/webcrawler
 cd webcrawler
 pip install -e .
 pip install -e ".[serializers]"  # Optional formats
