@@ -100,7 +100,7 @@ spider = Spider(
 ```python
 spider = Spider(
     start_url="https://example.com",
-    cache_dir=".webcrawler_cache"  # Enable disk caching (default: None/disabled)
+    cache_dir=".linktrace_cache"  # Enable disk caching (default: None/disabled)
 )
 # 2nd run will be 10-50x faster for same URLs
 ```
@@ -329,13 +329,23 @@ Spider (orchestrator)
       └─ CookieJar (automatic cookie handling)
 ```
 
-Spider manages the crawl queue and traversal. Crawler handles individual document fetching/parsing. All requests share one persistent aiohttp session per Spider instance.
+Spider manages the crawl queue and traversal. Crawler handles individual document fetching/parsing. All requests share one persistent aiohttp session per Spider instance, so connection pooling, cookies, SSL configuration, and DNS caching are reused across the crawl.
 
 ## Why linktrace?
 
-**vs Scrapy:** Lightweight, focused, simpler API for link analysis. Scrapy is better for complex extraction pipelines.
+Scrapy is an excellent full crawling and extraction framework. `linktrace` is designed for a narrower job: fast async link analysis with minimal setup.
 
-**vs requests + BeautifulSoup:** Built-in async concurrency, automatic session reuse, retries, caching. Better for crawling multiple pages.
+Instead of building a Scrapy project around spiders, requests, responses, callbacks, items, pipelines, middleware, and settings, `linktrace` gives you a direct document-centric API. Each crawled URL becomes a `Document` object containing the page source, title, status code, response headers, domain, internal links, external links, and crawl status metadata.
+
+That makes `linktrace` useful when your goal is to inspect site structure, trace links, audit crawl status, or export crawl results to dataframe-oriented tools without creating a larger scraping project.
+
+`linktrace` also reuses a persistent `aiohttp` session during a crawl. Connection pooling, cookie reuse, SSL configuration, request timeouts, per-host limits, and DNS caching are carried across requests, which can make repeated same-domain crawls much faster than creating a fresh client/session per URL.
+
+**Use Scrapy when:** you need a mature scraping framework with item pipelines, middleware, schedulers, broad ecosystem support, and complex extraction workflows.
+
+**Use linktrace when:** you want a focused async crawler that turns URLs into analyzable `Document` objects with automatic link classification and simple exports.
+
+**vs requests + BeautifulSoup:** Built-in async concurrency, automatic session reuse, retries, caching, rate limiting, and structured document objects. Better for crawling multiple pages.
 
 **vs Selenium:** Pure HTTP crawler (no JS execution). Faster, lighter, but can't handle dynamic sites.
 
