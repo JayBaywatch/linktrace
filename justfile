@@ -27,7 +27,7 @@ test:
 
 # Run tests with coverage
 test-cov:
-    uv run pytest -v --cov=WebCrawler --cov-report=term-missing
+    uv run pytest -v --cov=WebCrawler --cov-report=term-missing --cov-report=html
 
 # Run the spider against the demo URL
 run:
