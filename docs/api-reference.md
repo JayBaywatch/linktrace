@@ -22,7 +22,10 @@ Spider(
     on_page_crawled: Callable[[Document], Any] = None,
     on_error: Callable[[str, Exception], None] = None,
     on_crawl_complete: Callable[[], None] = None,
-    accumulate_results: bool = False
+    accumulate_results: bool = False,
+    request_delay: float = 0.0,
+    user_agent: str = "WebCrawler/0.1.0",
+    respect_robots_txt: bool = True
 )
 ```
 
@@ -45,6 +48,9 @@ Spider(
 | `on_error` | Callable | None | Callback on crawl failure. Receives (url, exception) |
 | `on_crawl_complete` | Callable | None | Callback when crawl finishes. Supports async for cleanup |
 | `accumulate_results` | bool | False | If True, accumulate callback return values in results list |
+| `request_delay` | float | 0.0 | Minimum seconds between requests to same domain (0 = no forced delay) |
+| `user_agent` | str | "WebCrawler/0.1.0" | User-Agent header for requests (affects robots.txt rules) |
+| `respect_robots_txt` | bool | True | Parse and respect robots.txt Crawl-delay directives |
 
 ### Methods
 
@@ -89,6 +95,9 @@ documents = spider.run()  # Blocks until complete
 | `on_crawl_complete` | Callable \| None | Callback on crawl completion |
 | `accumulate_results` | bool | Whether to accumulate callback results |
 | `accumulated_results` | list | Accumulated callback return values |
+| `request_delay` | float | Minimum delay between requests to same domain |
+| `user_agent` | str | User-Agent header value |
+| `respect_robots_txt` | bool | Whether to respect robots.txt rules |
 
 ### Callback Signature
 
@@ -225,9 +234,11 @@ Document(url: str, source: str = None)
 | `status_code` | int | HTTP status code |
 | `response_headers` | dict | HTTP response headers |
 | `domain` | str | Domain extracted from URL (read-only property) |
-| `internal_links` | List[HtmlLink] | Links to same domain |
-| `external_links` | List[HtmlLink] | Links to other domains |
+| `internal_links` | List[HtmlLink] | Links to same domain (successful crawl) |
+| `external_links` | List[HtmlLink] | Links to other domains (successful crawl) |
 | `links` | List[HtmlLink] | All links (internal + external) |
+| `broken_internal_links` | List[BrokenLink] | Internal links with HTTP error (4xx, 5xx) |
+| `broken_external_links` | List[BrokenLink] | External links with HTTP error (4xx, 5xx) |
 
 ### Properties
 
@@ -282,7 +293,44 @@ Supports standard Python comparisons:
 
 ---
 
-## Serializers
+## BrokenLink
+
+Represents a link that returned an HTTP error status (4xx, 5xx).
+
+### Constructor
+
+```python
+BrokenLink(url: str, status: int)
+```
+
+**Parameters:**
+- `url` (str) — Link URL
+- `status` (int) — HTTP status code (e.g., 404, 500)
+
+### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `url` | str | Link destination URL |
+| `status_code` | int | HTTP error status code |
+| `text` | str | String representation of status code |
+
+**Note:** BrokenLink inherits from HtmlLink, so it supports the same comparison operations.
+
+### Usage
+
+```python
+spider = Spider(start_url="https://example.com")
+documents = await spider.run_async()
+
+for doc in documents:
+    if doc.broken_internal_links:
+        print(f"Found {len(doc.broken_internal_links)} broken internal links:")
+        for broken in doc.broken_internal_links:
+            print(f"  {broken.url} - HTTP {broken.status_code}")
+```
+
+---
 
 Export documents to multiple formats.
 

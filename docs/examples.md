@@ -506,3 +506,141 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## 17. Respect robots.txt (Ethical Crawling)
+
+Automatically respect robots.txt Crawl-delay directives for each domain.
+
+```python
+import asyncio
+from WebCrawler import Spider
+
+async def main():
+    # By default, respect_robots_txt=True
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2,
+        respect_robots_txt=True,  # Parse robots.txt for Crawl-delay
+        user_agent="MyBot/1.0"     # Identify your bot
+    )
+    
+    # Crawler will:
+    # 1. Fetch https://example.com/robots.txt
+    # 2. Extract Crawl-delay for MyBot/1.0
+    # 3. Enforce delay between requests to same domain
+    # 4. Allow concurrent requests to different domains
+    
+    documents = await spider.run_async()
+    print(f"Crawled {len(documents)} pages (respecting robots.txt)")
+
+asyncio.run(main())
+```
+
+## 18. Custom Rate Limiting
+
+Enforce minimum delay between requests if robots.txt unavailable or for testing.
+
+```python
+import asyncio
+from WebCrawler import Spider
+
+async def main():
+    # Disable robots.txt, use explicit delay
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2,
+        respect_robots_txt=False,  # Don't fetch robots.txt
+        request_delay=1.0          # 1 second between requests to same domain
+    )
+    
+    # Requests to same domain: 1+ second apart
+    # Requests to different domains: concurrent (respects 10 per-host limit)
+    
+    documents = await spider.run_async()
+    print(f"Crawled {len(documents)} pages with 1s delay")
+
+asyncio.run(main())
+```
+
+## 19. Track and Audit Broken Links
+
+Use new Document.broken_internal_links and broken_external_links for site audits.
+
+```python
+import asyncio
+from WebCrawler import Spider
+
+async def main():
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2
+    )
+    documents = await spider.run_async()
+    
+    # Audit broken internal links (site structure issues)
+    print("=== BROKEN INTERNAL LINKS ===")
+    for doc in documents:
+        if doc.broken_internal_links:
+            for broken in doc.broken_internal_links:
+                print(f"  Page: {doc.url}")
+                print(f"    Bad link: {broken.url} (HTTP {broken.status_code})")
+    
+    # Audit broken external links (might be out of date or blocked)
+    print("\n=== BROKEN EXTERNAL LINKS ===")
+    for doc in documents:
+        if doc.broken_external_links:
+            for broken in doc.broken_external_links:
+                print(f"  Page: {doc.url}")
+                print(f"    Bad link: {broken.url} (HTTP {broken.status_code})")
+    
+    # Export broken links report
+    broken_count = sum(
+        len(doc.broken_internal_links) + len(doc.broken_external_links)
+        for doc in documents
+    )
+    print(f"\nTotal broken links found: {broken_count}")
+
+asyncio.run(main())
+```
+
+## 20. Stream Broken Links to Report
+
+Monitor broken links as crawl progresses using callbacks.
+
+```python
+import asyncio
+import json
+from WebCrawler import Spider
+
+async def track_broken_links(doc):
+    """Log broken links as they're discovered."""
+    if doc.broken_internal_links or doc.broken_external_links:
+        report = {
+            "url": doc.url,
+            "broken_internal": [
+                {"url": b.url, "status": b.status_code}
+                for b in doc.broken_internal_links
+            ],
+            "broken_external": [
+                {"url": b.url, "status": b.status_code}
+                for b in doc.broken_external_links
+            ]
+        }
+        with open("broken_links_report.jsonl", "a") as f:
+            json.dump(report, f)
+            f.write("\n")
+
+async def main():
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2,
+        on_page_crawled=track_broken_links,
+        accumulate_results=False,  # Memory efficient
+        request_delay=0.5          # Be polite
+    )
+    
+    await spider.run_async()
+    print("Broken links report saved to broken_links_report.jsonl")
+
+asyncio.run(main())
+```

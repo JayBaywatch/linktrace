@@ -28,6 +28,9 @@ class Spider:
         ) = None,
         on_crawl_complete: Callable[[], None] | None = None,
         accumulate_results: bool = False,
+        request_delay: float = 0.0,
+        user_agent: str = "WebCrawler/0.1.0",
+        respect_robots_txt: bool = True,
     ) -> None:
         self.start_url = start_url
         self.max_depth = max_depth
@@ -36,6 +39,9 @@ class Spider:
         self.request_timeout = request_timeout
         self.cache_dir = cache_dir
         self.max_retries = max_retries
+        self.request_delay = request_delay
+        self.user_agent = user_agent
+        self.respect_robots_txt = respect_robots_txt
 
         if traversal_strategy not in ("bfs", "dfs"):
             raise ValueError(
@@ -108,6 +114,9 @@ class Spider:
                 request_timeout=self.request_timeout,
                 cache_dir=self.cache_dir,
                 max_retries=self.max_retries,
+                request_delay=self.request_delay,
+                user_agent=self.user_agent,
+                respect_robots_txt=self.respect_robots_txt,
             ) as crawler:
                 while self.to_visit:
                     tasks = []
@@ -187,7 +196,7 @@ class Spider:
 
 if __name__ == "__main__":
     test_uri = "https://cnn.com/"
-    spider = Spider(start_url=test_uri, max_depth=3, debug=False)
+    spider = Spider(start_url=test_uri, max_depth=2, debug=False)
 
     loop = asyncio.get_event_loop()
     documents = loop.run_until_complete(spider.run_async())

@@ -9,6 +9,7 @@ import lxml.html
 import tldextract
 
 from WebCrawler.cache import ResponseCache
+from WebCrawler.robots import RobotsManager
 
 
 class HtmlLink:
@@ -53,6 +54,8 @@ class Document:
         self.internal_links: list[HtmlLink] = []
         self.external_links: list[HtmlLink] = []
         self.links: list[HtmlLink] = []
+        self.broken_internal_links: list[BrokenLink] = []
+        self.broken_external_links: list[BrokenLink] = []
         self.status_code: int = 0
         self.response_headers: dict[str, str] = {}
         self.dom: object = None
@@ -86,6 +89,9 @@ class Crawler:
         cache_dir: str | None = None,
         max_retries: int = 3,
         backoff_factor: int = 2,
+        request_delay: float = 0.0,
+        user_agent: str = "WebCrawler/0.1.0",
+        respect_robots_txt: bool = True,
     ) -> None:
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(log_level)
@@ -101,6 +107,14 @@ class Crawler:
         self.request_timeout: int = request_timeout
         self.max_retries: int = max_retries
         self.backoff_factor: int = backoff_factor
+
+        # Rate limiting and robots.txt
+        self.request_delay: float = request_delay
+        self.user_agent: str = user_agent
+        self.respect_robots_txt: bool = respect_robots_txt
+        self.robots_manager: RobotsManager | None = None
+        self._domain_locks: dict[str, asyncio.Lock] = {}
+        self._last_request_time: dict[str, float] = {}
 
         # Caching (opt-in)
         self.cache: ResponseCache | None = (
@@ -146,6 +160,10 @@ class Crawler:
             timeout=aiohttp.ClientTimeout(total=self.request_timeout),
         )
 
+        # Initialize RobotsManager if robots.txt respect enabled
+        if self.respect_robots_txt:
+            self.robots_manager = RobotsManager(self.user_agent, session)
+
         return session
 
     def _build_ssl_context(self) -> ssl.SSLContext:
@@ -189,6 +207,33 @@ class Crawler:
 
         return context
 
+    async def _rate_limit_domain(self, url: str, delay: float) -> None:
+        """Enforce per-domain rate limiting using asyncio.Lock.
+
+        Ensures delay seconds pass between requests to same domain.
+        """
+        import time
+
+        domain = urlparse(url).netloc
+
+        # Get or create lock for domain
+        if domain not in self._domain_locks:
+            self._domain_locks[domain] = asyncio.Lock()
+
+        async with self._domain_locks[domain]:
+            now = time.time()
+            last_time = self._last_request_time.get(domain, 0.0)
+            time_since_last = now - last_time
+
+            if time_since_last < delay:
+                wait_time = delay - time_since_last
+                self._logger.debug(
+                    f"Rate limit: waiting {wait_time:.2f}s before {domain}"
+                )
+                await asyncio.sleep(wait_time)
+
+            self._last_request_time[domain] = time.time()
+
     async def crawl_document_async(self, url: str) -> Document | None:
         """Fetch and parse a document with retries, with optional caching."""
         if not self.session:
@@ -207,30 +252,40 @@ class Crawler:
                 doc.response_headers = cached.response_headers
                 return doc
 
+        # Get effective delay (robots.txt or configured)
+        if self.respect_robots_txt and self.robots_manager:
+            delay = await self.robots_manager.get_crawl_delay(url)
+        else:
+            delay = self.request_delay
+
+        # Enforce per-domain rate limiting
+        await self._rate_limit_domain(url, delay)
+
         # Implement retry logic
         for attempt in range(self.max_retries):
             try:
-                async with self.session.get(url) as response:
+                headers = {"User-Agent": self.user_agent}
+                async with self.session.get(url, headers=headers) as response:
                     self._logger.debug(f"Fetching {url} (attempt {attempt + 1})")
                     status = response.status
-                    headers = dict(response.headers)
+                    response_headers = dict(response.headers)
 
                     if status != 200:
                         self._logger.error(f"Failed to fetch {url}: HTTP {status}")
                         doc = Document(url, None)
                         doc.status_code = status
-                        doc.response_headers = headers
+                        doc.response_headers = response_headers
                         return doc
 
                     html = await response.text()
 
                 doc = self.parse_document(url, html)
                 doc.status_code = status
-                doc.response_headers = headers
+                doc.response_headers = response_headers
 
                 # Cache successful responses
                 if self.cache:
-                    await self.cache.set(url, status, headers, html)
+                    await self.cache.set(url, status, response_headers, html)
 
                 return doc
 
