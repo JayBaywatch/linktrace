@@ -13,11 +13,15 @@ Lightweight async web crawler for link analysis and HTML document processing.
 - 📄 **Rich document model** — Full HTML source, parsed links, metadata, headers
 - 🔄 **Persistent sessions** — Connection pooling for 10-100x faster same-domain crawls
 - 🔁 **Retries + backoff** — Exponential backoff for transient errors (timeouts, 5xx)
+- ⏱️ **Rate limiting** — Per-domain rate limiting with asyncio.Lock, no thundering herd
+- 🤖 **robots.txt support** — Automatically respect Crawl-delay directives per domain
+- 🔍 **Broken link tracking** — Audit 404s and 5xx errors for site structure validation
 - 💾 **Optional caching** — Disk-based cache (1-day TTL) for repeat crawls
 - 🔐 **SSL verification** — Secure by default, with corporate proxy support
 - 🍪 **Automatic cookies** — Set-Cookie extraction and sending built-in
 - 🔀 **Traversal strategies** — BFS (broad) or DFS (deep) crawling
 - 📊 **Multi-format export** — JSON, Pandas, Polars, PyArrow for data analysis
+- 📍 **Callbacks & streaming** — Process results as crawled without memory buildup
 
 ## Quick Start
 
@@ -180,6 +184,67 @@ spider = Spider(start_url="https://example.com", max_depth=5, traversal_strategy
 
 Use DFS for deep hierarchies (documentation sites, nested directories). Use BFS for broad exploration.
 
+### Rate Limiting & robots.txt
+
+By default, WebCrawler automatically respects robots.txt `Crawl-delay` directives and enforces per-domain rate limiting:
+
+```python
+# Automatic robots.txt respect (default)
+spider = Spider(
+    start_url="https://example.com",
+    user_agent="MyBot/1.0",  # Identifies your bot to robots.txt rules
+)
+await spider.run_async()
+```
+
+Customize rate limiting:
+
+```python
+# Enforce explicit delay (ignores robots.txt)
+spider = Spider(
+    start_url="https://example.com",
+    request_delay=1.0,           # 1 second between requests to same domain
+    respect_robots_txt=False,    # Don't fetch robots.txt
+)
+
+# Concurrent requests to different domains, serialized to same domain
+await spider.run_async()
+```
+
+### Broken Link Audit
+
+Track 404s and 5xx errors for site maintenance:
+
+```python
+spider = Spider(start_url="https://example.com", max_depth=2)
+documents = await spider.run_async()
+
+for doc in documents:
+    # Broken internal links (fix these first!)
+    for broken in doc.broken_internal_links:
+        print(f"{doc.url} → {broken.url} (HTTP {broken.status_code})")
+    
+    # Broken external links (check if still valid)
+    for broken in doc.broken_external_links:
+        print(f"External: {broken.url} (HTTP {broken.status_code})")
+```
+
+Stream broken links in real-time:
+
+```python
+async def audit_broken(doc):
+    broken_count = len(doc.broken_internal_links) + len(doc.broken_external_links)
+    if broken_count > 0:
+        print(f"{doc.url}: {broken_count} broken links")
+
+spider = Spider(
+    start_url="https://example.com",
+    on_page_crawled=audit_broken,
+    accumulate_results=False,
+)
+await spider.run_async()
+```
+
 ### Export Data
 
 ```python
@@ -282,7 +347,7 @@ just test          # Run all tests
 just test-cov      # Run with coverage report
 ```
 
-All 50+ tests pass. ~53% code coverage (core crawling paths 100%, optional features lower).
+All 91 tests pass. 100% of core crawling paths tested (rate limiting, broken link tracking, robots.txt, callbacks).
 
 ## Contributing
 
