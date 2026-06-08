@@ -349,6 +349,8 @@ class Crawler:
                 if link.attrib["href"] and link.attrib["href"][:1] not in skip_words
             ]
 
+            # Use local list per document to avoid state leakage
+            found_links: list[HtmlLink] = []
             for link in links:
                 link_url = link.attrib["href"]
                 link_url = urljoin(url, link_url)
@@ -361,11 +363,11 @@ class Crawler:
                         link_url not in self.visited_urls
                         and link_url not in self._queue
                     ):
-                        self._links.append(HtmlLink(link_url, title))
+                        found_links.append(HtmlLink(link_url, title))
 
             doc.internal_links = [
                 link
-                for link in self._links
+                for link in found_links
                 if self.get_domain_parts(link.url) == self.get_domain_parts(doc.url)
                 or link.url[:1] == "/"
                 or link.url[:1] == ""
@@ -374,7 +376,7 @@ class Crawler:
 
             doc.external_links = [
                 link
-                for link in self._links
+                for link in found_links
                 if self.get_domain_parts(link.url) != self.get_domain_parts(doc.url)
                 and urlparse(link.url).scheme != ""
             ]

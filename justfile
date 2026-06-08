@@ -1,4 +1,4 @@
-# webcrawler — common tasks. Run `just` to list.
+# linktrace — common tasks. Run `just` to list.
 
 # Show available recipes
 default:
@@ -27,11 +27,11 @@ test:
 
 # Run tests with coverage
 test-cov:
-    uv run pytest -v --cov=WebCrawler --cov-report=term-missing --cov-report=html
+    uv run pytest -v --cov=linktrace --cov-report=term-missing --cov-report=html
 
 # Run the spider against the demo URL
 run:
-    uv run python -m WebCrawler.Spider
+    uv run python -m linktrace.Spider
 
 # Build the wheel + sdist into dist/
 build:

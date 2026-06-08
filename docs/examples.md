@@ -562,9 +562,9 @@ async def main():
 asyncio.run(main())
 ```
 
-## 19. Track and Audit Broken Links
+## 19. Track Pages with Error Status
 
-Use new Document.broken_internal_links and broken_external_links for site audits.
+Find pages that returned 4xx/5xx errors during crawling.
 
 ```python
 import asyncio
@@ -577,56 +577,44 @@ async def main():
     )
     documents = await spider.run_async()
     
-    # Audit broken internal links (site structure issues)
-    print("=== BROKEN INTERNAL LINKS ===")
-    for doc in documents:
-        if doc.broken_internal_links:
-            for broken in doc.broken_internal_links:
-                print(f"  Page: {doc.url}")
-                print(f"    Bad link: {broken.url} (HTTP {broken.status_code})")
+    # Find pages with errors
+    print("=== PAGES WITH ERRORS ===")
+    error_pages = [doc for doc in documents if doc.status_code >= 400]
+    for doc in error_pages:
+        print(f"  {doc.url} (HTTP {doc.status_code})")
     
-    # Audit broken external links (might be out of date or blocked)
-    print("\n=== BROKEN EXTERNAL LINKS ===")
-    for doc in documents:
-        if doc.broken_external_links:
-            for broken in doc.broken_external_links:
-                print(f"  Page: {doc.url}")
-                print(f"    Bad link: {broken.url} (HTTP {broken.status_code})")
+    # Check for disallowed pages (robots.txt)
+    print("\n=== DISALLOWED BY ROBOTS.TXT ===")
+    disallowed = [doc for doc in documents if doc.status_code == 403]
+    for doc in disallowed:
+        print(f"  {doc.url}")
     
-    # Export broken links report
-    broken_count = sum(
-        len(doc.broken_internal_links) + len(doc.broken_external_links)
-        for doc in documents
-    )
-    print(f"\nTotal broken links found: {broken_count}")
+    # Summary
+    print(f"\nTotal: {len(documents)} pages")
+    print(f"Errors: {len(error_pages)}")
+    print(f"Disallowed: {len(disallowed)}")
 
 asyncio.run(main())
 ```
 
-## 20. Stream Broken Links to Report
+## 20. Stream Error Pages to Report
 
-Monitor broken links as crawl progresses using callbacks.
+Monitor pages with error responses as crawl progresses using callbacks.
 
 ```python
 import asyncio
 import json
 from linktrace import Spider
 
-async def track_broken_links(doc):
-    """Log broken links as they're discovered."""
-    if doc.broken_internal_links or doc.broken_external_links:
+async def track_errors(doc):
+    """Log error pages as they're discovered."""
+    if doc.status_code >= 400:
         report = {
             "url": doc.url,
-            "broken_internal": [
-                {"url": b.url, "status": b.status_code}
-                for b in doc.broken_internal_links
-            ],
-            "broken_external": [
-                {"url": b.url, "status": b.status_code}
-                for b in doc.broken_external_links
-            ]
+            "status": doc.status_code,
+            "status_text": "Disallowed" if doc.status_code == 403 else "Error"
         }
-        with open("broken_links_report.jsonl", "a") as f:
+        with open("error_pages.jsonl", "a") as f:
             json.dump(report, f)
             f.write("\n")
 
@@ -634,13 +622,13 @@ async def main():
     spider = Spider(
         start_url="https://example.com",
         max_depth=2,
-        on_page_crawled=track_broken_links,
+        on_page_crawled=track_errors,
         accumulate_results=False,  # Memory efficient
         request_delay=0.5          # Be polite
     )
     
     await spider.run_async()
-    print("Broken links report saved to broken_links_report.jsonl")
+    print("Error pages report saved to error_pages.jsonl")
 
 asyncio.run(main())
 ```

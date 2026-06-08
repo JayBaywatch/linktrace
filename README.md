@@ -211,35 +211,34 @@ spider = Spider(
 await spider.run_async()
 ```
 
-### Broken Link Audit
+### Track Crawl Status
 
-Track 404s and 5xx errors for site maintenance:
+Monitor which pages returned error status codes:
 
 ```python
 spider = Spider(start_url="https://example.com", max_depth=2)
 documents = await spider.run_async()
 
-for doc in documents:
-    # Broken internal links (fix these first!)
-    for broken in doc.broken_internal_links:
-        print(f"{doc.url} → {broken.url} (HTTP {broken.status_code})")
-    
-    # Broken external links (check if still valid)
-    for broken in doc.broken_external_links:
-        print(f"External: {broken.url} (HTTP {broken.status_code})")
+# Find pages with error responses
+error_pages = [doc for doc in documents if doc.status_code >= 400]
+for doc in error_pages:
+    print(f"Error: {doc.url} (HTTP {doc.status_code})")
+
+# Monitor disallowed pages (403 from robots.txt)
+disallowed = [doc for doc in documents if doc.status_code == 403]
+print(f"Disallowed by robots.txt: {len(disallowed)} pages")
 ```
 
-Stream broken links in real-time:
+Stream crawl status in real-time:
 
 ```python
-async def audit_broken(doc):
-    broken_count = len(doc.broken_internal_links) + len(doc.broken_external_links)
-    if broken_count > 0:
-        print(f"{doc.url}: {broken_count} broken links")
+async def track_errors(doc):
+    if doc.status_code >= 400:
+        print(f"❌ {doc.url} (HTTP {doc.status_code})")
 
 spider = Spider(
     start_url="https://example.com",
-    on_page_crawled=audit_broken,
+    on_page_crawled=track_errors,
     accumulate_results=False,
 )
 await spider.run_async()
