@@ -122,7 +122,47 @@ spider = Spider(
 
 Cookies are handled automatically — no configuration needed.
 
-## Examples
+### Callbacks: Process Results in Real-Time
+
+For large crawls, avoid memory buildup by processing documents as they're crawled:
+
+```python
+# Stream results to disk
+async def save_result(doc):
+    with open("results.jsonl", "a") as f:
+        f.write(json.dumps({"url": doc.url, "title": doc.title}) + "\n")
+
+spider = Spider(
+    start_url="https://example.com",
+    on_page_crawled=save_result,
+    accumulate_results=False,  # Don't keep in memory
+)
+await spider.run_async()  # Returns [], file has results
+```
+
+**Callback Hooks:**
+- `on_page_crawled(doc)` — Called after each successful crawl. Return value accumulated if `accumulate_results=True`
+- `on_error(url, exc)` — Called on crawl failures
+- `on_crawl_complete()` — Called when crawl finishes (cleanup hook)
+
+**Async Callbacks Supported:**
+```python
+async def save_to_db(doc):
+    await db.insert(doc.url, doc.title)
+    return doc.url
+
+spider = Spider(
+    start_url="https://example.com",
+    on_page_crawled=save_to_db,       # Async callback
+    accumulate_results=True,
+)
+results = await spider.run_async()  # Returns list of URLs
+```
+
+**Return Logic:**
+- No callback → returns all documents (default)
+- Callback + `accumulate_results=False` → returns [] (streaming mode)
+- Callback + `accumulate_results=True` → returns callback results
 
 ### Traversal Strategies
 

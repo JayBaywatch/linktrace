@@ -17,7 +17,12 @@ Spider(
     request_timeout: int = 30,
     cache_dir: str = None,
     max_retries: int = 3,
-    traversal_strategy: str = "bfs"
+    traversal_strategy: str = "bfs",
+    show_progress: bool = False,
+    on_page_crawled: Callable[[Document], Any] = None,
+    on_error: Callable[[str, Exception], None] = None,
+    on_crawl_complete: Callable[[], None] = None,
+    accumulate_results: bool = False
 )
 ```
 
@@ -35,6 +40,11 @@ Spider(
 | `cache_dir` | str | None | Directory for disk cache (None = disabled) |
 | `max_retries` | int | 3 | Retry transient errors up to N times |
 | `traversal_strategy` | str | "bfs" | "bfs" (breadth-first) or "dfs" (depth-first) |
+| `show_progress` | bool | False | Show tqdm progress bar with visited/pending counts |
+| `on_page_crawled` | Callable | None | Callback after each page crawl. Supports sync and async. Return value accumulated if `accumulate_results=True` |
+| `on_error` | Callable | None | Callback on crawl failure. Receives (url, exception) |
+| `on_crawl_complete` | Callable | None | Callback when crawl finishes. Supports async for cleanup |
+| `accumulate_results` | bool | False | If True, accumulate callback return values in results list |
 
 ### Methods
 
@@ -74,6 +84,41 @@ documents = spider.run()  # Blocks until complete
 | `documents` | list | Results (accumulated Documents) |
 | `visited_count` | int | Number of pages successfully fetched |
 | `traversal_strategy` | str | "bfs" or "dfs" |
+| `on_page_crawled` | Callable \| None | Callback for each crawled page |
+| `on_error` | Callable \| None | Callback for crawl errors |
+| `on_crawl_complete` | Callable \| None | Callback on crawl completion |
+| `accumulate_results` | bool | Whether to accumulate callback results |
+| `accumulated_results` | list | Accumulated callback return values |
+
+### Callback Signature
+
+```python
+# Sync callback (simple file I/O, aggregation)
+def on_page_crawled(doc: Document) -> Any:
+    # Process document, return data to accumulate or None
+    pass
+
+# Async callback (database, HTTP, etc.)
+async def on_page_crawled(doc: Document) -> Any:
+    await db.insert(doc.url)
+    return doc.url
+
+# Error callback
+def on_error(url: str, exception: Exception) -> None:
+    logger.error(f"Failed: {url}: {exception}")
+
+# Completion callback (async supported)
+async def on_crawl_complete() -> None:
+    await db.close()
+```
+
+### Return Behavior
+
+| Callback | `accumulate_results` | Return Value |
+|----------|----------------------|--------------|
+| None | Any | List of all Documents |
+| Provided | False | Empty list [] |
+| Provided | True | List of accumulated callback returns |
 
 ---
 

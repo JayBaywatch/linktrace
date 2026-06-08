@@ -352,3 +352,157 @@ async def main():
 import asyncio
 asyncio.run(main())
 ```
+
+## 13. Stream Results to Disk (Memory Efficient)
+
+For large crawls, process documents as they're crawled without accumulating in memory.
+
+```python
+import json
+from WebCrawler import Spider
+
+async def save_result(doc):
+    """Save each document to JSONL file as it's crawled."""
+    with open("results.jsonl", "a") as f:
+        json.dump({
+            "url": doc.url,
+            "title": doc.title,
+            "status": doc.status_code,
+            "internal_links": len(doc.internal_links),
+        }, f)
+        f.write("\n")
+
+async def main():
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2,
+        on_page_crawled=save_result,
+        accumulate_results=False,  # Don't keep in memory
+    )
+    
+    result = await spider.run_async()
+    # result is empty list, but file "results.jsonl" contains all pages
+    print(f"Crawl complete. Results saved to results.jsonl")
+
+asyncio.run(main())
+```
+
+## 14. Aggregate Results with Callbacks
+
+Use callbacks to transform and aggregate data from each page.
+
+```python
+from WebCrawler import Spider
+
+def extract_links(doc):
+    """Extract and return link summary for each page."""
+    return {
+        "url": doc.url,
+        "title": doc.title,
+        "internal_count": len(doc.internal_links),
+        "external_count": len(doc.external_links),
+    }
+
+async def main():
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=1,
+        on_page_crawled=extract_links,
+        accumulate_results=True,  # Collect results
+    )
+    
+    results = await spider.run_async()
+    
+    # results is list of dicts with structured data
+    print(f"Crawled {len(results)} pages")
+    for page in results:
+        total = page['internal_count'] + page['external_count']
+        print(f"  {page['title']} ({total} total links)")
+
+asyncio.run(main())
+```
+
+## 15. Handle Errors with Callbacks
+
+Track failures and perform cleanup operations.
+
+```python
+import logging
+from WebCrawler import Spider
+
+logger = logging.getLogger(__name__)
+failed_urls = []
+
+def on_error(url, exception):
+    """Track failed URLs."""
+    logger.error(f"Failed to crawl {url}: {exception}")
+    failed_urls.append(url)
+
+async def on_complete():
+    """Cleanup and report."""
+    if failed_urls:
+        print(f"\nFailed URLs ({len(failed_urls)}):")
+        for url in failed_urls:
+            print(f"  - {url}")
+    else:
+        print("\nAll URLs crawled successfully!")
+
+async def main():
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2,
+        on_error=on_error,
+        on_crawl_complete=on_complete,
+    )
+    
+    documents = await spider.run_async()
+    print(f"Crawled {len(documents)} pages")
+
+asyncio.run(main())
+```
+
+## 16. Async Callbacks: Save to Database
+
+Use async callbacks for I/O operations like database writes.
+
+```python
+from WebCrawler import Spider
+
+class Database:
+    async def connect(self):
+        print("Connected to database")
+    
+    async def insert(self, url, title):
+        # Simulate async DB insert
+        print(f"Inserting: {title}")
+    
+    async def close(self):
+        print("Database closed")
+
+db = Database()
+
+async def save_to_db(doc):
+    """Async callback to save page to database."""
+    await db.insert(doc.url, doc.title)
+    return doc.url  # Return for tracking
+
+async def cleanup():
+    """Close database connection."""
+    await db.close()
+
+async def main():
+    await db.connect()
+    
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=2,
+        on_page_crawled=save_to_db,      # Async callback
+        on_crawl_complete=cleanup,       # Cleanup hook
+        accumulate_results=True,         # Get URLs back
+    )
+    
+    urls = await spider.run_async()
+    print(f"Saved {len(urls)} pages to database")
+
+asyncio.run(main())
+```
