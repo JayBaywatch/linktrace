@@ -369,8 +369,8 @@ MIT
 ---
 
 **Documentation:**
-- [Getting Started](docs/getting-started.md)
-- [Core Concepts](docs/core-concepts.md)
-- [API Reference](docs/api-reference.md)
-- [Examples](docs/examples.md)
-- [Troubleshooting](docs/troubleshooting.md)
+- [Getting Started](https://github.com/JayBaywatch/webcrawler/blob/main/docs/getting-started.md)
+- [Core Concepts](https://github.com/JayBaywatch/webcrawler/blob/main/docs/core-concepts.md)
+- [API Reference](https://github.com/JayBaywatch/webcrawler/blob/main/docs/api-reference.md)
+- [Examples](https://github.com/JayBaywatch/webcrawler/blob/main/docs/examples.md)
+- [Troubleshooting](https://github.com/JayBaywatch/webcrawler/blob/main/docs/troubleshooting.md)
