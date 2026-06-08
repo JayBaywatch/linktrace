@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "linktrace"
-version = "0.2.1"
+version = "0.2.2"
 description = "Async web crawler with rate limiting, robots.txt support, and broken link tracking"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -44,7 +44,7 @@ dev = [
 packages = ["linktrace"]
 
 [tool.ruff]
-target-version = "0.2.1"
+target-version = "0.2.2"
 line-length = 88
 
 [tool.ruff.lint]
@@ -82,7 +82,7 @@ precision = 2
 directory = "htmlcov"
 
 [tool.mypy]
-python_version = "0.2.1"
+python_version = "0.2.2"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
