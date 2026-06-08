@@ -97,3 +97,105 @@ class TestCrawlerDomainParts:
             == "www.example.com"
         )
         assert Crawler.get_domain_parts("https://example.com") == "example.com"
+
+
+class TestProtocolHandling:
+    """Test handling of dangerous protocols and external resource links."""
+
+    def test_filters_javascript_lowercase(self):
+        """JavaScript URLs with lowercase protocol should be filtered."""
+        html = '<a href="javascript:void(0)">Link</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "Lowercase javascript: should be filtered"
+
+    def test_filters_javascript_uppercase(self):
+        """JavaScript URLs with uppercase protocol might bypass simple filter."""
+        html = "<a href=\"JavaScript:alert('xss')\">Link</a>"
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        # This tests if uppercase JavaScript bypasses the filter
+        # The current implementation is case-sensitive!
+        assert len(doc.links) == 0, "Uppercase JavaScript: should be filtered"
+
+    def test_filters_javascript_mixed_case(self):
+        """JavaScript URLs with mixed case might bypass simple filter."""
+        html = '<a href="jAvAsCrIpT:void(0)">Link</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "Mixed case jAvAsCrIpT: should be filtered"
+
+    def test_filters_data_urls(self):
+        """Data URLs (potential XSS vectors) should be filtered."""
+        html = "<a href=\"data:text/html,<script>alert('xss')</script>\">Link</a>"
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "data: URLs should be filtered by scheme check"
+
+    def test_filters_vbscript(self):
+        """VBScript protocol should be filtered."""
+        html = "<a href=\"vbscript:msgbox('xss')\">Link</a>"
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "vbscript: should be filtered by scheme check"
+
+    def test_filters_file_protocol(self):
+        """File protocol should be filtered."""
+        html = '<a href="file:///etc/passwd">Link</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "file: should be filtered by scheme check"
+
+    def test_filters_mailto_links(self):
+        """Mailto links should be filtered."""
+        html = '<a href="mailto:user@example.com">Email</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "mailto: should be filtered by scheme check"
+
+    def test_filters_tel_links(self):
+        """Tel links should be filtered."""
+        html = '<a href="tel:+1234567890">Phone</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "tel: should be filtered by scheme check"
+
+    def test_filters_anchor_only_links(self):
+        """Links that are just anchors (#) should be filtered."""
+        html = '<a href="#anchor">Anchor</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        # Anchor-only links start with # which is in skip_words
+        assert len(doc.links) == 0, "Anchor-only links should be filtered"
+
+    def test_filters_empty_href(self):
+        """Empty href attributes should be filtered."""
+        html = '<a href="">Empty</a>'
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 0, "Empty href should be filtered"
+
+    def test_allows_http_https_ftp(self):
+        """Valid HTTP, HTTPS, and FTP URLs should be allowed."""
+        html = """
+        <a href="http://example.com/page">HTTP</a>
+        <a href="https://example.com/page">HTTPS</a>
+        <a href="ftp://example.com/file">FTP</a>
+        """
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", html)
+        assert len(doc.links) == 3, "HTTP, HTTPS, FTP should all be allowed"
+
+    def test_protocol_edge_cases_comprehensive(self, protocol_edge_cases_html):
+        """Comprehensive test with all dangerous protocols."""
+        crawler = Crawler()
+        doc = crawler.parse_document("https://example.com", protocol_edge_cases_html)
+        # Should only have safe HTTP/HTTPS/FTP links
+        safe_links = doc.links
+        for link in safe_links:
+            scheme = link.url.split("://")[0].lower()
+            assert scheme in [
+                "http",
+                "https",
+                "ftp",
+            ], f"Unexpected scheme: {scheme} in {link.url}"
