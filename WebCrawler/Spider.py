@@ -82,16 +82,22 @@ class Spider:
                 cache_dir=self.cache_dir,
                 max_retries=self.max_retries,
             ) as crawler:
-                tasks = []
                 while self.to_visit:
-                    idx = 0 if self.traversal_strategy == "bfs" else -1
-                    url, current_depth = self.to_visit.pop(idx)
-                    if url in self.visited or current_depth > self.max_depth:
-                        continue
+                    tasks = []
+                    batch_size = min(10, len(self.to_visit))
 
-                    tasks.append(self.crawl_and_collect(url, current_depth, crawler))
+                    for _ in range(batch_size):
+                        idx = 0 if self.traversal_strategy == "bfs" else -1
+                        url, current_depth = self.to_visit.pop(idx)
+                        if url in self.visited or current_depth > self.max_depth:
+                            continue
 
-                await asyncio.gather(*tasks)
+                        tasks.append(
+                            self.crawl_and_collect(url, current_depth, crawler)
+                        )
+
+                    if tasks:
+                        await asyncio.gather(*tasks)
         finally:
             if self._pbar is not None:
                 self._pbar.close()
