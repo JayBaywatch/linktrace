@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from WebCrawler import Crawler, Document, Spider
+from linktrace import Crawler, Document, Spider
 
 
 @pytest.mark.asyncio
@@ -127,7 +127,7 @@ class TestBrokenLinkTracking:
 
     def test_broken_link_status_code(self):
         """BrokenLink should store status code."""
-        from WebCrawler.Crawler import BrokenLink
+        from linktrace.Crawler import BrokenLink
 
         broken = BrokenLink("https://example.com", 404)
         assert broken.status_code == 404
@@ -135,7 +135,7 @@ class TestBrokenLinkTracking:
 
     def test_broken_link_stored_on_error(self):
         """BrokenLink should store error status code."""
-        from WebCrawler.Crawler import BrokenLink
+        from linktrace.Crawler import BrokenLink
 
         broken_404 = BrokenLink("https://example.com/notfound", 404)
         broken_500 = BrokenLink("https://example.com/error", 500)

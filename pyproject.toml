@@ -37,11 +37,11 @@ dev = [
     "pyarrow>=14.0",
 ]
 
-# Distribution name is "linktrace"; the import package is "WebCrawler" (the
+# Distribution name is "linktrace"; the import package is "linktrace" (the
 # subfolder), so point hatchling at it explicitly. data/ lives inside the
 # package and ships in the wheel automatically.
 [tool.hatch.build.targets.wheel]
-packages = ["WebCrawler"]
+packages = ["linktrace"]
 
 [tool.ruff]
 target-version = "py312"
@@ -64,7 +64,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.coverage.run]
-source = ["WebCrawler"]
+source = ["linktrace"]
 omit = ["*/tests/*", "*/test_*.py"]
 
 [tool.coverage.report]

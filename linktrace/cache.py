@@ -1,4 +1,4 @@
-"""Disk-based response caching for WebCrawler."""
+"""Disk-based response caching for linktrace."""
 
 import hashlib
 import json

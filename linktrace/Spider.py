@@ -3,7 +3,7 @@ import logging
 from collections.abc import Callable
 from typing import Any, Literal
 
-from WebCrawler.Crawler import Crawler, Document
+from linktrace.Crawler import Crawler, Document
 
 
 class Spider:

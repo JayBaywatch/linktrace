@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from WebCrawler.Crawler import Document
+from linktrace.Crawler import Document
 
 
 class Serializers:

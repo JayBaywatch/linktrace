@@ -35,7 +35,7 @@ pip install -e ".[serializers]"  # Optional formats
 
 ```python
 import asyncio
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(start_url="https://example.com", max_depth=1)
@@ -73,7 +73,7 @@ print(f"Found {len(external_domains)} external domains")
 ### 4. Export Data
 
 ```python
-from WebCrawler import Serializers
+from linktrace import Serializers
 
 serializer = Serializers(documents)
 

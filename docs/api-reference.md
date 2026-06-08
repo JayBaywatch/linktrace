@@ -478,7 +478,7 @@ logging.basicConfig(
 )
 
 # Or specific logger
-logger = logging.getLogger("WebCrawler.Spider")
+logger = logging.getLogger("linktrace.Spider")
 logger.setLevel(logging.DEBUG)
 ```
 

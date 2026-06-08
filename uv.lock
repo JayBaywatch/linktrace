@@ -795,6 +795,80 @@ wheels = [
 ]
 
 [[package]]
+name = "linktrace"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "aiofiles" },
+    { name = "aiohttp" },
+    { name = "lxml" },
+    { name = "tenacity" },
+    { name = "tldextract" },
+]
+
+[package.optional-dependencies]
+pandas = [
+    { name = "pandas" },
+]
+polars = [
+    { name = "polars" },
+]
+pyarrow = [
+    { name = "pyarrow" },
+]
+serializers = [
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pyarrow" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ipykernel" },
+    { name = "mypy" },
+    { name = "pandas" },
+    { name = "polars" },
+    { name = "pre-commit" },
+    { name = "pyarrow" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "tqdm" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiofiles", specifier = ">=23.0" },
+    { name = "aiohttp", specifier = ">=3.10" },
+    { name = "lxml", specifier = ">=5.0" },
+    { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0" },
+    { name = "pandas", marker = "extra == 'serializers'", specifier = ">=2.0" },
+    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0" },
+    { name = "polars", marker = "extra == 'serializers'", specifier = ">=1.0" },
+    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0" },
+    { name = "pyarrow", marker = "extra == 'serializers'", specifier = ">=14.0" },
+    { name = "tenacity", specifier = ">=8.2.3" },
+    { name = "tldextract", specifier = ">=5.0" },
+]
+provides-extras = ["pandas", "polars", "pyarrow", "serializers"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ipykernel", specifier = ">=7.2.0" },
+    { name = "mypy", specifier = ">=1.14" },
+    { name = "pandas", specifier = ">=2.0" },
+    { name = "polars", specifier = ">=1.0" },
+    { name = "pre-commit", specifier = ">=4.6.0" },
+    { name = "pyarrow", specifier = ">=14.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=5.0" },
+    { name = "ruff", specifier = ">=0.15" },
+    { name = "tqdm", specifier = ">=4.66" },
+]
+
+[[package]]
 name = "lxml"
 version = "6.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1826,80 +1900,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/af/44/c833e6b746ffb654e9abacf7ad6c2480a9c8c42e9637c1ae849964fb4dde/wcwidth-0.8.0.tar.gz", hash = "sha256:68a882ff6d14e3d14e0cae590b96a0551be64ce4905408112a8254434a1bdf69", size = 1305357, upload-time = "2026-06-05T21:19:35.667Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/17/c68b6cbcfeadbf420b3c3edaf8fda51335bc9c38732adb2d3ba8984dc607/wcwidth-0.8.0-py3-none-any.whl", hash = "sha256:8c75e6099cefd197c4bcc67a486f70b5dbc68f997c05f34a811d853910450d64", size = 324935, upload-time = "2026-06-05T21:19:33.999Z" },
-]
-
-[[package]]
-name = "webcrawler"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aiofiles" },
-    { name = "aiohttp" },
-    { name = "lxml" },
-    { name = "tenacity" },
-    { name = "tldextract" },
-]
-
-[package.optional-dependencies]
-pandas = [
-    { name = "pandas" },
-]
-polars = [
-    { name = "polars" },
-]
-pyarrow = [
-    { name = "pyarrow" },
-]
-serializers = [
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "pyarrow" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipykernel" },
-    { name = "mypy" },
-    { name = "pandas" },
-    { name = "polars" },
-    { name = "pre-commit" },
-    { name = "pyarrow" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-    { name = "tqdm" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiofiles", specifier = ">=23.0" },
-    { name = "aiohttp", specifier = ">=3.10" },
-    { name = "lxml", specifier = ">=5.0" },
-    { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0" },
-    { name = "pandas", marker = "extra == 'serializers'", specifier = ">=2.0" },
-    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0" },
-    { name = "polars", marker = "extra == 'serializers'", specifier = ">=1.0" },
-    { name = "pyarrow", marker = "extra == 'pyarrow'", specifier = ">=14.0" },
-    { name = "pyarrow", marker = "extra == 'serializers'", specifier = ">=14.0" },
-    { name = "tenacity", specifier = ">=8.2.3" },
-    { name = "tldextract", specifier = ">=5.0" },
-]
-provides-extras = ["pandas", "polars", "pyarrow", "serializers"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ipykernel", specifier = ">=7.2.0" },
-    { name = "mypy", specifier = ">=1.14" },
-    { name = "pandas", specifier = ">=2.0" },
-    { name = "polars", specifier = ">=1.0" },
-    { name = "pre-commit", specifier = ">=4.6.0" },
-    { name = "pyarrow", specifier = ">=14.0" },
-    { name = "pytest", specifier = ">=8.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24" },
-    { name = "pytest-cov", specifier = ">=5.0" },
-    { name = "ruff", specifier = ">=0.15" },
-    { name = "tqdm", specifier = ">=4.66" },
 ]
 
 [[package]]

@@ -193,7 +193,7 @@ Cache is automatically cleaned up on corruption; the crawl continues.
 
 ```python
 import os
-from WebCrawler import Spider
+from linktrace import Spider
 
 cache_dir = ".webcrawler_cache"
 print(f"Cache enabled: {os.path.exists(cache_dir)}")
@@ -234,7 +234,7 @@ spider = Spider(
 
 ```python
 import time
-from WebCrawler import Spider
+from linktrace import Spider
 
 start = time.time()
 spider = Spider(start_url="https://example.com", max_depth=1)
@@ -346,10 +346,10 @@ documents = await spider.run_async()
 
 ```python
 # Just Spider logs
-logging.getLogger("WebCrawler.Spider").setLevel(logging.DEBUG)
+logging.getLogger("linktrace.Spider").setLevel(logging.DEBUG)
 
 # Just Crawler logs
-logging.getLogger("WebCrawler.Crawler").setLevel(logging.DEBUG)
+logging.getLogger("linktrace.Crawler").setLevel(logging.DEBUG)
 
 # Silence everything else
 logging.getLogger().setLevel(logging.WARNING)

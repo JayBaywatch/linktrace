@@ -27,7 +27,7 @@ Lightweight async web crawler for link analysis and HTML document processing.
 
 ```python
 import asyncio
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(start_url="https://example.com", max_depth=2)
@@ -248,7 +248,7 @@ await spider.run_async()
 ### Export Data
 
 ```python
-from WebCrawler import Spider, Serializers
+from linktrace import Spider, Serializers
 
 spider = Spider(start_url="https://example.com", max_depth=2)
 documents = await spider.run_async()

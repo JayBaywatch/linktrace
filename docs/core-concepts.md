@@ -80,7 +80,7 @@ The **Crawler** handles individual document fetching and parsing. Manages:
 ### Usage
 
 ```python
-from WebCrawler import Crawler
+from linktrace import Crawler
 
 async with Crawler(ssl_verify=True, cache_dir=".cache") as crawler:
     doc = await crawler.crawl_document_async("https://example.com")

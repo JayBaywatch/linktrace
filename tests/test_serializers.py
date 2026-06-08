@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from WebCrawler import Document, HtmlLink, Serializers
+from linktrace import Document, HtmlLink, Serializers
 
 
 @pytest.fixture

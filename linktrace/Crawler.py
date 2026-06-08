@@ -8,8 +8,8 @@ import lxml.etree
 import lxml.html
 import tldextract
 
-from WebCrawler.cache import ResponseCache
-from WebCrawler.robots import RobotsManager
+from linktrace.cache import ResponseCache
+from linktrace.robots import RobotsManager
 
 
 class HtmlLink:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from WebCrawler import BrokenLink, CrawlException, Document, HtmlLink
+from linktrace import BrokenLink, CrawlException, Document, HtmlLink
 
 
 class TestHtmlLink:

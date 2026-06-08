@@ -1,6 +1,6 @@
 """Tests for Crawler parsing logic."""
 
-from WebCrawler import Crawler
+from linktrace import Crawler
 
 
 class TestCrawlerParsing:

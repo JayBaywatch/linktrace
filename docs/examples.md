@@ -6,7 +6,7 @@ Crawl a site and print all pages.
 
 ```python
 import asyncio
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(
@@ -32,7 +32,7 @@ Find the most common external domains linked from a site.
 
 ```python
 from collections import Counter
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(
@@ -59,7 +59,7 @@ asyncio.run(main())
 Crawl and export to DataFrame.
 
 ```python
-from WebCrawler import Spider, Serializers
+from linktrace import Spider, Serializers
 
 async def main():
     spider = Spider(start_url="https://example.com", max_depth=2)
@@ -85,7 +85,7 @@ asyncio.run(main())
 Use depth-first search for hierarchical sites.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(
@@ -108,7 +108,7 @@ asyncio.run(main())
 First crawl fetches from network; second uses cache.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 import time
 
 async def crawl():
@@ -137,7 +137,7 @@ async def crawl():
 Different SSL configuration scenarios.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 # Scenario 1: Public HTTPS (default, most secure)
 spider = Spider(start_url="https://example.com")
@@ -169,7 +169,7 @@ documents = await spider.run_async()
 Configure longer timeouts and more retries.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(
@@ -187,7 +187,7 @@ asyncio.run(main())
 Find which pages link to which other pages.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(
@@ -222,7 +222,7 @@ asyncio.run(main())
 Export same crawl to JSON, Pandas, Polars, PyArrow.
 
 ```python
-from WebCrawler import Spider, Serializers
+from linktrace import Spider, Serializers
 
 async def main():
     spider = Spider(start_url="https://example.com", max_depth=2)
@@ -252,7 +252,7 @@ asyncio.run(main())
 Identify 404s and other errors on internal links.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(start_url="https://example.com", max_depth=2)
@@ -287,7 +287,7 @@ asyncio.run(main())
 Process large crawls in memory-efficient batches.
 
 ```python
-from WebCrawler import Crawler
+from linktrace import Crawler
 
 async def process_batch(urls):
     """Process a batch of URLs."""
@@ -326,7 +326,7 @@ See detailed crawl progress.
 
 ```python
 import logging
-from WebCrawler import Spider
+from linktrace import Spider
 
 # Configure logging
 logging.basicConfig(
@@ -359,7 +359,7 @@ For large crawls, process documents as they're crawled without accumulating in m
 
 ```python
 import json
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def save_result(doc):
     """Save each document to JSONL file as it's crawled."""
@@ -392,7 +392,7 @@ asyncio.run(main())
 Use callbacks to transform and aggregate data from each page.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 def extract_links(doc):
     """Extract and return link summary for each page."""
@@ -428,7 +428,7 @@ Track failures and perform cleanup operations.
 
 ```python
 import logging
-from WebCrawler import Spider
+from linktrace import Spider
 
 logger = logging.getLogger(__name__)
 failed_urls = []
@@ -466,7 +466,7 @@ asyncio.run(main())
 Use async callbacks for I/O operations like database writes.
 
 ```python
-from WebCrawler import Spider
+from linktrace import Spider
 
 class Database:
     async def connect(self):
@@ -513,7 +513,7 @@ Automatically respect robots.txt Crawl-delay directives for each domain.
 
 ```python
 import asyncio
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     # By default, respect_robots_txt=True
@@ -542,7 +542,7 @@ Enforce minimum delay between requests if robots.txt unavailable or for testing.
 
 ```python
 import asyncio
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     # Disable robots.txt, use explicit delay
@@ -568,7 +568,7 @@ Use new Document.broken_internal_links and broken_external_links for site audits
 
 ```python
 import asyncio
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def main():
     spider = Spider(
@@ -610,7 +610,7 @@ Monitor broken links as crawl progresses using callbacks.
 ```python
 import asyncio
 import json
-from WebCrawler import Spider
+from linktrace import Spider
 
 async def track_broken_links(doc):
     """Log broken links as they're discovered."""

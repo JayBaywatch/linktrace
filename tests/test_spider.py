@@ -2,7 +2,7 @@
 
 import pytest
 
-from WebCrawler import Spider
+from linktrace import Spider
 
 
 @pytest.fixture
