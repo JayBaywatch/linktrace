@@ -24,7 +24,7 @@ Spider(
     on_crawl_complete: Callable[[], None] = None,
     accumulate_results: bool = False,
     request_delay: float = 0.0,
-    user_agent: str = "WebCrawler/0.1.0",
+    user_agent: str = "linktrace/0.1.0",
     respect_robots_txt: bool = True
 )
 ```
@@ -49,7 +49,7 @@ Spider(
 | `on_crawl_complete` | Callable | None | Callback when crawl finishes. Supports async for cleanup |
 | `accumulate_results` | bool | False | If True, accumulate callback return values in results list |
 | `request_delay` | float | 0.0 | Minimum seconds between requests to same domain (0 = no forced delay) |
-| `user_agent` | str | "WebCrawler/0.1.0" | User-Agent header for requests (affects robots.txt rules) |
+| `user_agent` | str | "linktrace/0.1.0" | User-Agent header for requests (affects robots.txt rules) |
 | `respect_robots_txt` | bool | True | Parse and respect robots.txt Crawl-delay directives |
 
 ### Methods
@@ -465,7 +465,7 @@ class CrawlException(Exception):
 
 ## Logging
 
-WebCrawler uses Python's standard logging module.
+linktrace uses Python's standard logging module.
 
 ### Configure Logging
 

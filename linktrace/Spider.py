@@ -29,7 +29,7 @@ class Spider:
         on_crawl_complete: Callable[[], None] | None = None,
         accumulate_results: bool = False,
         request_delay: float = 0.0,
-        user_agent: str = "WebCrawler/0.1.0",
+        user_agent: str = "linktrace/0.1.0",
         respect_robots_txt: bool = True,
     ) -> None:
         self.start_url = start_url

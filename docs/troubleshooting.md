@@ -136,7 +136,7 @@ for link in doc.internal_links[:3]:
 
 **Common causes:**
 - Relative links not resolved correctly
-- JavaScript-generated links (WebCrawler doesn't execute JS)
+- JavaScript-generated links (linktrace doesn't execute JS)
 - Links hidden behind `onclick` or `data-href`
 - Page returned error status (check `doc.status_code`)
 
@@ -396,7 +396,7 @@ spider = Spider(start_url="...", traversal_strategy="dfs")  # or "bfs"
 ### ❌ Expecting JavaScript execution
 
 ```python
-# Won't work - WebCrawler doesn't execute JavaScript
+# Won't work - linktrace doesn't execute JavaScript
 spider = Spider(start_url="https://react-app.example.com")
 documents = await spider.run_async()
 

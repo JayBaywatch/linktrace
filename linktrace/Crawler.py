@@ -90,7 +90,7 @@ class Crawler:
         max_retries: int = 3,
         backoff_factor: int = 2,
         request_delay: float = 0.0,
-        user_agent: str = "WebCrawler/0.1.0",
+        user_agent: str = "linktrace/0.1.0",
         respect_robots_txt: bool = True,
     ) -> None:
         self._logger = logging.getLogger(log_name if log_name else __name__)

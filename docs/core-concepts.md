@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-WebCrawler has three main components:
+linktrace has three main components:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -228,7 +228,7 @@ await spider.run_async()
 # Slow handshake/TLS negotiation for each request
 ```
 
-WebCrawler reuses one persistent session across all requests in a single crawl. Same-domain requests are dramatically faster.
+linktrace reuses one persistent session across all requests in a single crawl. Same-domain requests are dramatically faster.
 
 ## Error Handling
 

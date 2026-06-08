@@ -1,4 +1,4 @@
-# WebCrawler
+# linktrace
 
 Lightweight async web crawler for link analysis and HTML document processing.
 
@@ -186,7 +186,7 @@ Use DFS for deep hierarchies (documentation sites, nested directories). Use BFS 
 
 ### Rate Limiting & robots.txt
 
-By default, WebCrawler automatically respects robots.txt `Crawl-delay` directives and enforces per-domain rate limiting:
+By default, linktrace automatically respects robots.txt `Crawl-delay` directives and enforces per-domain rate limiting:
 
 ```python
 # Automatic robots.txt respect (default)
@@ -332,7 +332,7 @@ Spider (orchestrator)
 
 Spider manages the crawl queue and traversal. Crawler handles individual document fetching/parsing. All requests share one persistent aiohttp session per Spider instance.
 
-## Why WebCrawler?
+## Why linktrace?
 
 **vs Scrapy:** Lightweight, focused, simpler API for link analysis. Scrapy is better for complex extraction pipelines.
 
