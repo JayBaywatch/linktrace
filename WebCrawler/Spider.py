@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Callable
 from typing import Any, Literal
 
 from WebCrawler.Crawler import Crawler, Document
@@ -19,6 +20,14 @@ class Spider:
         max_retries: int = 3,
         traversal_strategy: Literal["bfs", "dfs"] = "bfs",
         show_progress: bool = False,
+        on_page_crawled: (
+            Callable[[Document], Any] | None | Callable[[Document], Any]
+        ) = None,
+        on_error: (
+            Callable[[str, Exception], None] | None | Callable[[str, Exception], None]
+        ) = None,
+        on_crawl_complete: Callable[[], None] | None = None,
+        accumulate_results: bool = False,
     ) -> None:
         self.start_url = start_url
         self.max_depth = max_depth
@@ -44,6 +53,13 @@ class Spider:
         self.visited_count = 0
         self.lock = asyncio.Lock()
 
+        # Callback hooks
+        self.on_page_crawled = on_page_crawled
+        self.on_error = on_error
+        self.on_crawl_complete = on_crawl_complete
+        self.accumulate_results = accumulate_results
+        self.accumulated_results: list[Any] = []
+
         self._logger.debug(
             f"Spider initialized: strategy={self.traversal_strategy.upper()}, "
             f"max_depth={max_depth}"
@@ -59,6 +75,17 @@ class Spider:
         )
         ch.setFormatter(formatter)
         self._logger.addHandler(ch)
+
+    async def _invoke_callback(
+        self,
+        callback: Callable[..., Any] | Callable[..., Any],
+        *args: Any,
+    ) -> Any:
+        """Invoke callback, supporting both sync and async functions."""
+        if asyncio.iscoroutinefunction(callback):
+            return await callback(*args)
+        else:
+            return callback(*args)
 
     async def run_async(self) -> list[Document]:
         """Run the spider with persistent session."""
@@ -103,7 +130,17 @@ class Spider:
                 self._pbar.close()
                 self._pbar = None
 
-        return self.documents
+            # Call completion hook
+            if self.on_crawl_complete is not None:
+                await self._invoke_callback(self.on_crawl_complete)
+
+        # Return logic: Option B
+        if self.on_page_crawled is None:
+            return self.documents
+        elif self.accumulate_results:
+            return self.accumulated_results
+        else:
+            return []
 
     async def crawl_and_collect(
         self, url: str, current_depth: int, crawler: Crawler
@@ -126,6 +163,13 @@ class Spider:
                                 "pending": len(self.to_visit),
                             }
                         )
+
+                # Invoke callback if provided
+                if self.on_page_crawled is not None:
+                    result = await self._invoke_callback(self.on_page_crawled, doc)
+                    if self.accumulate_results:
+                        self.accumulated_results.append(result)
+
                 # Add internal links to the queue
                 for link in doc.internal_links:
                     if link.url not in self.visited:
@@ -133,6 +177,8 @@ class Spider:
 
         except Exception as e:
             self._logger.error(f"Failed to crawl {url}: {e}")
+            if self.on_error is not None:
+                await self._invoke_callback(self.on_error, url, e)
 
     def track_visits(self, url: str, doc: Document) -> None:
         self.documents.append(doc)

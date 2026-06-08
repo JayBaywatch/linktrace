@@ -224,3 +224,63 @@ class TestProgressTracking:
         )
         assert spider.show_progress is True
         assert spider.traversal_strategy == "dfs"
+
+
+class TestCallbacks:
+    """Tests for callback hooks."""
+
+    def test_callbacks_default_none(self):
+        """Verify callbacks default to None."""
+        spider = Spider(start_url="https://example.com")
+        assert spider.on_page_crawled is None
+        assert spider.on_error is None
+        assert spider.on_crawl_complete is None
+
+    def test_accumulate_results_default_false(self):
+        """Verify accumulate_results defaults to False."""
+        spider = Spider(start_url="https://example.com")
+        assert spider.accumulate_results is False
+
+    def test_callback_parameters_accepted(self):
+        """Verify callback parameters are accepted."""
+
+        def my_callback(doc):
+            pass
+
+        def error_callback(url, exc):
+            pass
+
+        def complete_callback():
+            pass
+
+        spider = Spider(
+            start_url="https://example.com",
+            on_page_crawled=my_callback,
+            on_error=error_callback,
+            on_crawl_complete=complete_callback,
+            accumulate_results=True,
+        )
+        assert spider.on_page_crawled is my_callback
+        assert spider.on_error is error_callback
+        assert spider.on_crawl_complete is complete_callback
+        assert spider.accumulate_results is True
+
+    def test_accumulated_results_list_initialized(self):
+        """Verify accumulated_results list is initialized."""
+        spider = Spider(start_url="https://example.com")
+        assert spider.accumulated_results == []
+        assert isinstance(spider.accumulated_results, list)
+
+    def test_callback_with_accumulate_false(self):
+        """Verify callback can be set with accumulate_results=False."""
+
+        def my_callback(doc):
+            pass
+
+        spider = Spider(
+            start_url="https://example.com",
+            on_page_crawled=my_callback,
+            accumulate_results=False,
+        )
+        assert spider.on_page_crawled is my_callback
+        assert spider.accumulate_results is False
