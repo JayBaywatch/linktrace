@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "async-web-crawler"
+name = "linktrace"
 version = "0.1.0"
 description = "Async web crawler with rate limiting, robots.txt support, and broken link tracking"
 readme = "README.md"
