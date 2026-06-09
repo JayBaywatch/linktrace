@@ -1,5 +1,10 @@
 # linktrace
 
+[![PyPI - Version](https://img.shields.io/pypi/v/linktrace)](https://pypi.org/project/linktrace/)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/linktrace)](https://pypi.org/project/linktrace/)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![GitHub](https://img.shields.io/badge/GitHub-JayBaywatch/linktrace-blue?logo=github)](https://github.com/JayBaywatch/linktrace)
+
 Lightweight async web crawler for link analysis and HTML document processing.
 
 **Perfect for:** Site structure analysis, link tracking, concurrent page fetching, HTML document transformation.
@@ -285,7 +290,7 @@ for doc in documents:
 print(external_domains.most_common(10))
 ```
 
-See [Examples](docs/examples.md) for more patterns.
+See [Examples](https://github.com/JayBaywatch/webcrawler/blob/main/docs/examples.md) for more patterns.
 
 ## Notebooks
 
@@ -294,7 +299,7 @@ Interactive examples in `notebooks/`:
 
 ## API Reference
 
-See [API Reference](docs/api-reference.md) for complete method documentation.
+See [API Reference](https://github.com/JayBaywatch/webcrawler/blob/main/docs/api-reference.md) for complete method documentation.
 
 ## Troubleshooting
 
@@ -307,7 +312,7 @@ Reduce concurrency by lowering `max_retries` or increase timeouts. Default setti
 ### "Crawler hits timeout on deep sites"
 Try DFS traversal instead of BFS, or increase `request_timeout`.
 
-See [Troubleshooting](docs/troubleshooting.md) for more.
+See [Troubleshooting](https://github.com/JayBaywatch/webcrawler/blob/main/docs/troubleshooting.md) for more.
 
 ## Performance
 

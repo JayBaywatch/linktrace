@@ -70,6 +70,6 @@ release version:
 
     echo ""
     echo "🎉 Next step: Create release on GitHub"
-    echo "   https://github.com/JayBaywatch/webcrawler/releases/new?tag=v{{version}}"
+    echo "   https://github.com/JayBaywatch/linktrace/releases/new?tag=v{{version}}"
     echo ""
     echo "   This will trigger GitHub Actions to publish to PyPI automatically!"
