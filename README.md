@@ -290,7 +290,7 @@ for doc in documents:
 print(external_domains.most_common(10))
 ```
 
-See [Examples](https://github.com/JayBaywatch/webcrawler/blob/main/docs/examples.md) for more patterns.
+See [Examples](https://github.com/JayBaywatch/linktrace/blob/main/docs/examples.md) for more patterns.
 
 ## Notebooks
 
@@ -299,7 +299,7 @@ Interactive examples in `notebooks/`:
 
 ## API Reference
 
-See [API Reference](https://github.com/JayBaywatch/webcrawler/blob/main/docs/api-reference.md) for complete method documentation.
+See [API Reference](https://github.com/JayBaywatch/linktrace/blob/main/docs/api-reference.md) for complete method documentation.
 
 ## Troubleshooting
 
@@ -312,7 +312,7 @@ Reduce concurrency by lowering `max_retries` or increase timeouts. Default setti
 ### "Crawler hits timeout on deep sites"
 Try DFS traversal instead of BFS, or increase `request_timeout`.
 
-See [Troubleshooting](https://github.com/JayBaywatch/webcrawler/blob/main/docs/troubleshooting.md) for more.
+See [Troubleshooting](https://github.com/JayBaywatch/linktrace/blob/main/docs/troubleshooting.md) for more.
 
 ## Performance
 
@@ -374,8 +374,8 @@ MIT
 ---
 
 **Documentation:**
-- [Getting Started](https://github.com/JayBaywatch/webcrawler/blob/main/docs/getting-started.md)
-- [Core Concepts](https://github.com/JayBaywatch/webcrawler/blob/main/docs/core-concepts.md)
-- [API Reference](https://github.com/JayBaywatch/webcrawler/blob/main/docs/api-reference.md)
-- [Examples](https://github.com/JayBaywatch/webcrawler/blob/main/docs/examples.md)
-- [Troubleshooting](https://github.com/JayBaywatch/webcrawler/blob/main/docs/troubleshooting.md)
+- [Getting Started](https://github.com/JayBaywatch/linktrace/blob/main/docs/getting-started.md)
+- [Core Concepts](https://github.com/JayBaywatch/linktrace/blob/main/docs/core-concepts.md)
+- [API Reference](https://github.com/JayBaywatch/linktrace/blob/main/docs/api-reference.md)
+- [Examples](https://github.com/JayBaywatch/linktrace/blob/main/docs/examples.md)
+- [Troubleshooting](https://github.com/JayBaywatch/linktrace/blob/main/docs/troubleshooting.md)

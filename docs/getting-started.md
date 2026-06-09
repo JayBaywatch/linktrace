@@ -23,7 +23,7 @@ pip install linktrace[pyarrow]
 ### Development Installation
 
 ```bash
-git clone https://github.com/JayBaywatch/webcrawler
+git clone https://github.com/JayBaywatch/linktrace
 cd webcrawler
 pip install -e .
 pip install -e ".[serializers]"  # Optional formats
