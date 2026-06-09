@@ -2,6 +2,7 @@
 
 [![PyPI - Version](https://img.shields.io/pypi/v/linktrace)](https://pypi.org/project/linktrace/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/linktrace)](https://pypi.org/project/linktrace/)
+[![Tests](https://github.com/JayBaywatch/linktrace/actions/workflows/tests.yml/badge.svg)](https://github.com/JayBaywatch/linktrace/actions/workflows/tests.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-JayBaywatch/linktrace-blue?logo=github)](https://github.com/JayBaywatch/linktrace)
 
