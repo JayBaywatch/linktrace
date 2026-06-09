@@ -75,7 +75,7 @@ Rich object containing:
 - `external_links` — links to other domains
 - `status_code`, `response_headers`, `domain` — metadata
 
-See [Core Concepts](docs/core-concepts.md) for more.
+See [Core Concepts](https://github.com/JayBaywatch/linktrace/docs/core-concepts.md) for more.
 
 ## Configuration
 
