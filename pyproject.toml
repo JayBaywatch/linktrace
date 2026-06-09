@@ -4,10 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "linktrace"
-version = "0.2.8"
+version = "0.2.9"
 description = "Async web crawler with rate limiting, robots.txt support, and broken link tracking"
 readme = "README.md"
 requires-python = ">=3.12"
+license = {text = "MIT"}
 authors = [{name = "Jay Baywatch"}]
 keywords = ["crawler", "async", "web-scraping", "link-analysis", "broken-links", "robots.txt", "aiohttp"]
 classifiers = [
@@ -40,9 +41,11 @@ pyarrow = ["pyarrow>=14.0"]
 serializers = ["pandas>=2.0", "polars>=1.0", "pyarrow>=14.0"]
 
 [project.urls]
+Homepage = "https://github.com/JayBaywatch/linktrace"
 Repository = "https://github.com/JayBaywatch/linktrace"
 Issues = "https://github.com/JayBaywatch/linktrace/issues"
 Documentation = "https://github.com/JayBaywatch/linktrace/blob/main/README.md"
+Changelog = "https://github.com/JayBaywatch/linktrace/releases"
 
 [dependency-groups]
 dev = [
