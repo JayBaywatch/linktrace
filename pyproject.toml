@@ -13,7 +13,7 @@ authors = [{name = "Jay Baywatch"}]
 maintainers = [{name = "Jay Baywatch"}]
 keywords = ["crawler", "async", "web-scraping", "link-analysis", "broken-links", "robots.txt", "aiohttp"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Web Environment",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
