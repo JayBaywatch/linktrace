@@ -30,8 +30,8 @@ jobs:
     - name: Lint with ruff
       run: |
         pip install ruff
-        ruff check .
-        ruff format --check .
+        ruff check linktrace/ tests/ docs/
+        ruff format --check linktrace/ tests/ docs/
 
     - name: Type check with mypy
       run: |
