@@ -59,13 +59,17 @@ release version:
 
     # Commit version bump
     git add pyproject.toml
-    git commit -m "Bump version to {{version}}"
-    echo "✅ Committed version bump"
+    if ! git diff --cached --quiet; then
+        git commit -m "Bump version to {{version}}"
+        echo "✅ Committed version bump"
+    else
+        echo "ℹ️ Version bump already committed; skipping commit"
+    fi
 
-    # Create and push tag
-    git tag "v{{version}}"
+    # Create or refresh the release tag so reruns do not fail on an existing local tag.
+    git tag -f "v{{version}}"
     git push origin main
-    git push origin "v{{version}}"
+    git push --force origin "v{{version}}"
     echo "✅ Pushed to GitHub"
 
     echo ""

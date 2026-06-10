@@ -52,6 +52,8 @@ class Spider:
         self.show_progress = show_progress
 
         self.visited: set[str] = set()
+        self.discovered: set[str] = {start_url}
+        self.in_progress: set[str] = set()
         self.to_visit = [(start_url, 0)]
         self.documents: list[Document] = []
         self._logger = logging.getLogger(log_name if log_name else __name__)
@@ -125,8 +127,14 @@ class Spider:
                     for _ in range(batch_size):
                         idx = 0 if self.traversal_strategy == "bfs" else -1
                         url, current_depth = self.to_visit.pop(idx)
-                        if url in self.visited or current_depth > self.max_depth:
+                        if (
+                            url in self.visited
+                            or url in self.in_progress
+                            or current_depth > self.max_depth
+                        ):
                             continue
+
+                        self.in_progress.add(url)
 
                         tasks.append(
                             self.crawl_and_collect(url, current_depth, crawler)
@@ -181,13 +189,19 @@ class Spider:
 
                 # Add internal links to the queue
                 for link in doc.internal_links:
-                    if link.url not in self.visited:
+                    async with self.lock:
+                        if link.url in self.discovered:
+                            continue
+
+                        self.discovered.add(link.url)
                         self.to_visit.append((link.url, current_depth + 1))
 
         except Exception as e:
             self._logger.error(f"Failed to crawl {url}: {e}")
             if self.on_error is not None:
                 await self._invoke_callback(self.on_error, url, e)
+        finally:
+            self.in_progress.discard(url)
 
     def track_visits(self, url: str, doc: Document) -> None:
         self.documents.append(doc)

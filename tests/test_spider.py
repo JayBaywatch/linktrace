@@ -1,8 +1,11 @@
 """Tests for Spider traversal strategies (BFS vs DFS)."""
 
+import asyncio
+from typing import cast
+
 import pytest
 
-from linktrace import Spider
+from linktrace import Crawler, Document, Spider
 
 
 @pytest.fixture
@@ -284,3 +287,40 @@ class TestCallbacks:
         )
         assert spider.on_page_crawled is my_callback
         assert spider.accumulate_results is False
+
+
+@pytest.mark.asyncio
+async def test_parallel_parents_do_not_queue_same_child_twice():
+    spider = Spider(start_url="https://example.com")
+    spider.to_visit = []
+    spider.discovered = {
+        "https://example.com",
+        "https://example.com/parent-1",
+        "https://example.com/parent-2",
+    }
+
+    shared_child = type("Link", (), {"url": "https://example.com/shared"})()
+    parent_one = Document("https://example.com/parent-1", "")
+    parent_one.internal_links = [shared_child]
+    parent_two = Document("https://example.com/parent-2", "")
+    parent_two.internal_links = [shared_child]
+
+    class FakeCrawler:
+        def __init__(self) -> None:
+            self.docs = {
+                "https://example.com/parent-1": parent_one,
+                "https://example.com/parent-2": parent_two,
+            }
+
+        async def crawl_document_async(self, url: str) -> Document:
+            await asyncio.sleep(0)
+            return self.docs[url]
+
+    crawler = cast(Crawler, FakeCrawler())
+
+    await asyncio.gather(
+        spider.crawl_and_collect("https://example.com/parent-1", 0, crawler),
+        spider.crawl_and_collect("https://example.com/parent-2", 0, crawler),
+    )
+
+    assert spider.to_visit == [("https://example.com/shared", 1)]
