@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![GitHub](https://img.shields.io/badge/GitHub-JayBaywatch/linktrace-blue?logo=github)](https://github.com/JayBaywatch/linktrace)
 
-Lightweight async web crawler for link analysis and HTML document processing.
+LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Document object containing metadata, content, and discovered relationships.
 
 **Perfect for:** Site structure analysis, link tracking, concurrent page fetching, HTML document transformation.
 
