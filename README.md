@@ -10,7 +10,7 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 
 **Perfect for:** Site structure analysis, link tracking, concurrent page fetching, HTML document transformation.
 
-**Not:** A replacement for Scrapy. Use this when you need simple, focused crawling with automatic link classification and clean document models.
+**Not:** A Scrapy replacement. Scrapy is a powerful full-featured framework — linktrace is deliberately lightweight with no pipelines, middleware, or project scaffolding to configure. If you want crawling results in minutes rather than hours of setup, and a gentler learning curve, linktrace is for you.
 
 ## Key Features
 

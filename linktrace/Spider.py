@@ -121,26 +121,28 @@ class Spider:
                 respect_robots_txt=self.respect_robots_txt,
             ) as crawler:
                 while self.to_visit:
-                    tasks = []
-                    batch_size = min(10, len(self.to_visit))
+                    async with self.lock:
+                        batch: list[tuple[str, int]] = []
+                        batch_size = min(10, len(self.to_visit))
+                        for _ in range(batch_size):
+                            if not self.to_visit:
+                                break
+                            idx = 0 if self.traversal_strategy == "bfs" else -1
+                            url, current_depth = self.to_visit.pop(idx)
+                            if (
+                                url in self.visited
+                                or url in self.in_progress
+                                or current_depth > self.max_depth
+                            ):
+                                continue
+                            self.in_progress.add(url)
+                            batch.append((url, current_depth))
 
-                    for _ in range(batch_size):
-                        idx = 0 if self.traversal_strategy == "bfs" else -1
-                        url, current_depth = self.to_visit.pop(idx)
-                        if (
-                            url in self.visited
-                            or url in self.in_progress
-                            or current_depth > self.max_depth
-                        ):
-                            continue
-
-                        self.in_progress.add(url)
-
-                        tasks.append(
-                            self.crawl_and_collect(url, current_depth, crawler)
-                        )
-
-                    if tasks:
+                    if batch:
+                        tasks = [
+                            self.crawl_and_collect(url, depth, crawler)
+                            for url, depth in batch
+                        ]
                         await asyncio.gather(*tasks)
         finally:
             if self._pbar is not None:
