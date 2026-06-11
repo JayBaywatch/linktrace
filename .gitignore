@@ -11,3 +11,5 @@ dist/
 .claude/
 .mypy_cache/
 .pytest_cache/
+# MkDocs build output
+site/
