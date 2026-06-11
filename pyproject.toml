@@ -45,7 +45,7 @@ serializers = ["pandas>=2.0", "polars>=1.0", "pyarrow>=14.0"]
 Homepage = "https://github.com/JayBaywatch/linktrace"
 Repository = "https://github.com/JayBaywatch/linktrace"
 Issues = "https://github.com/JayBaywatch/linktrace/issues"
-Documentation = "https://github.com/JayBaywatch/linktrace/blob/main/README.md"
+Documentation = "https://linktrace.readthedocs.io"
 Changelog = "https://github.com/JayBaywatch/linktrace/releases"
 
 [dependency-groups]
