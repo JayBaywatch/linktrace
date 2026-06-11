@@ -32,6 +32,7 @@ class Spider:
         user_agent: str = "linktrace/0.1.0",
         respect_robots_txt: bool = True,
     ) -> None:
+        start_url = Crawler.normalize_url(start_url)
         self.start_url = start_url
         self.max_depth = max_depth
         self.ssl_verify = ssl_verify  # bool or str(path to CA cert)
@@ -75,14 +76,16 @@ class Spider:
 
         self._pbar: Any = None
 
-        # Add console handler to logger
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.DEBUG)
-        formatter = logging.Formatter(
-            "%(asctime)s %(name)-12s %(levelname)-8s %(message)s"
-        )
-        ch.setFormatter(formatter)
-        self._logger.addHandler(ch)
+        # Add a console handler only if logging isn't already configured
+        # (own handler or root handlers); otherwise messages print twice
+        if not self._logger.handlers and not logging.getLogger().handlers:
+            ch = logging.StreamHandler()
+            ch.setLevel(logging.DEBUG)
+            formatter = logging.Formatter(
+                "%(asctime)s %(name)-12s %(levelname)-8s %(message)s"
+            )
+            ch.setFormatter(formatter)
+            self._logger.addHandler(ch)
 
     async def _invoke_callback(
         self,

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import ssl
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urldefrag, urljoin, urlparse
 
 import aiohttp
 import lxml.etree
@@ -353,7 +353,7 @@ class Crawler:
             found_links: list[HtmlLink] = []
             for link in links:
                 link_url = link.attrib["href"]
-                link_url = urljoin(url, link_url)
+                link_url = self.normalize_url(urljoin(url, link_url))
                 if urlparse(link_url).scheme not in ["http", "https", "ftp"]:
                     continue
 
@@ -400,6 +400,15 @@ class Crawler:
     def queue_link(self, link: str) -> None:
         if link not in self.visited_urls and link not in self._queue:
             self._queue.append(link)
+
+    @staticmethod
+    def normalize_url(url: str) -> str:
+        """Strip fragments and normalize an empty path to '/'."""
+        url = urldefrag(url).url
+        parsed = urlparse(url)
+        if parsed.netloc and not parsed.path:
+            url = parsed._replace(path="/").geturl()
+        return url
 
     @staticmethod
     def get_domain_parts(url: str) -> str:
