@@ -72,6 +72,10 @@ packages = ["linktrace"]
 [tool.ruff]
 target-version = "py312"
 line-length = 88
+# Jupyter notebooks rely on cross-cell state (shared imports, `display`, etc.)
+# that ruff/pyflakes can't track, producing false positives. Skip them here to
+# match the pre-commit config (which excludes `^notebooks/`).
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 select = [
