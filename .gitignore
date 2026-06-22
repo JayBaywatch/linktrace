@@ -8,8 +8,10 @@ dist/
 *.tmp
 .claude_cache/
 .assessor_cache/
+.feature_demo_cache/
 .claude/
 .mypy_cache/
 .pytest_cache/
 # MkDocs build output
 site/
+notebooks/cnn_crawl.json

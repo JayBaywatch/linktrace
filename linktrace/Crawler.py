@@ -92,6 +92,8 @@ class Crawler:
         request_delay: float = 0.0,
         user_agent: str = "linktrace/0.1.0",
         respect_robots_txt: bool = True,
+        max_connections: int = 100,
+        max_connections_per_host: int = 10,
     ) -> None:
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(log_level)
@@ -112,6 +114,8 @@ class Crawler:
         self.request_delay: float = request_delay
         self.user_agent: str = user_agent
         self.respect_robots_txt: bool = respect_robots_txt
+        self.max_connections: int = max_connections
+        self.max_connections_per_host: int = max_connections_per_host
         self.robots_manager: RobotsManager | None = None
         self._domain_locks: dict[str, asyncio.Lock] = {}
         self._last_request_time: dict[str, float] = {}
@@ -148,8 +152,8 @@ class Crawler:
         ssl_context = self._build_ssl_context()
 
         connector = aiohttp.TCPConnector(
-            limit=100,
-            limit_per_host=10,
+            limit=self.max_connections,
+            limit_per_host=self.max_connections_per_host,
             ttl_dns_cache=300,
             ssl=ssl_context,
         )
@@ -322,6 +326,27 @@ class Crawler:
                 raise
 
         return None
+
+    async def discover_sitemap_urls(self, base_url: str) -> list[str]:
+        """Discover page URLs from the site's sitemaps.
+
+        Uses ``Sitemap:`` declarations from robots.txt when available, otherwise
+        falls back to the conventional ``/sitemap.xml`` location.
+        """
+        if not self.session:
+            raise RuntimeError(
+                "Crawler.session not initialized. "
+                "Use 'async with Crawler(...) as crawler:' context manager."
+            )
+
+        from linktrace.sitemap import SitemapParser
+
+        robots_sitemaps: list[str] = []
+        if self.respect_robots_txt and self.robots_manager:
+            robots_sitemaps = await self.robots_manager.get_sitemaps(base_url)
+
+        parser = SitemapParser(self.session, self.user_agent, self._logger)
+        return await parser.discover(base_url, robots_sitemaps or None)
 
     def parse_document(self, url: str, source: str | None) -> Document:
         self._protocol_ = urlparse(url).scheme if not urlparse(url).scheme else "http"

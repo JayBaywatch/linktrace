@@ -632,3 +632,122 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## 21. Focus a Crawl with URL Filtering Rules
+
+Use `CrawlRules` to follow only the URLs you care about and skip crawl traps
+(login pages, sort/calendar links, binary files, off-site domains). Rules apply
+to every discovered link; the `start_url` itself is always fetched.
+
+```python
+import asyncio
+from linktrace import Spider, CrawlRules
+
+async def main():
+    rules = CrawlRules(
+        # Stay on this site (matches subdomains too)
+        allowed_domains=["realty.example.com"],
+        # Only follow listing and agent pages...
+        include_path_prefixes=["/homes-for-sale/", "/agents/"],
+        # ...but never these
+        exclude_path_prefixes=["/login", "/privacy", "/cart"],
+        # Skip binaries — we want documents, not downloads
+        blocked_extensions=["pdf", "jpg", "png", "zip"],
+        # Drop faceted-search variants that explode the queue
+        exclude_query_params=["sort", "view", "page", "calendar"],
+        # Regex escape hatch for anything the above can't express
+        exclude_patterns=[r"/print/?$"],
+    )
+
+    spider = Spider(
+        start_url="https://realty.example.com/",
+        max_depth=4,
+        rules=rules,
+    )
+    documents = await spider.run_async()
+    print(f"Crawled {len(documents)} on-topic pages")
+
+asyncio.run(main())
+```
+
+!!! note "Exclusions always win"
+    For each dimension, a populated *allow* list (`allowed_domains`,
+    `include_path_prefixes`, `allowed_extensions`, `include_patterns`) acts as a
+    whitelist, and any *block*/*exclude* list rejects matches. If a URL matches
+    both an include and an exclude, it is **excluded**. An empty `CrawlRules()`
+    allows everything, so leaving `rules` unset preserves the default behavior.
+
+## 22. Tune Concurrency for Throughput
+
+Raise (or lower) how many pages are fetched at once. `max_concurrency` controls
+the Spider's per-batch fan-out; `max_connections` / `max_connections_per_host`
+size the underlying aiohttp connection pool.
+
+```python
+import asyncio
+from linktrace import Spider
+
+async def main():
+    # Faster: large fan-out, but cap per-host to stay polite to one server
+    spider = Spider(
+        start_url="https://example.com",
+        max_depth=3,
+        max_concurrency=50,            # up to 50 fetches per batch (default 10)
+        max_connections=200,           # total pool size (default 100)
+        max_connections_per_host=8,    # be gentle on a single host (default 10)
+        request_delay=0.2,             # still rate-limit per domain
+    )
+    documents = await spider.run_async()
+    print(f"Crawled {len(documents)} pages")
+
+asyncio.run(main())
+```
+
+!!! tip "Be a good citizen"
+    High concurrency is best when fanning out across **many** hosts. Against a
+    single site, keep `max_connections_per_host` modest and pair it with
+    `request_delay` or `respect_robots_txt=True` so you don't overwhelm the
+    server.
+
+## 23. Seed a Crawl from Sitemaps
+
+Set `use_sitemaps=True` to discover URLs from the site's own document
+inventory before link-following begins. linktrace reads `Sitemap:` declarations
+from `robots.txt` (falling back to `/sitemap.xml`), follows sitemap *indexes*
+and nested sitemaps, and seeds every discovered URL at depth 0.
+
+```python
+import asyncio
+from linktrace import Spider, CrawlRules
+
+async def main():
+    rules = CrawlRules(include_path_prefixes=["/homes-for-sale/"])
+
+    spider = Spider(
+        start_url="https://realty.example.com/",
+        max_depth=2,
+        use_sitemaps=True,   # seed from sitemap.xml / robots.txt Sitemap:
+        rules=rules,         # sitemap URLs are filtered through rules too
+    )
+    documents = await spider.run_async()
+    print(f"Crawled {len(documents)} pages (sitemap-seeded)")
+
+asyncio.run(main())
+```
+
+You can also use the parser directly to inspect a site's sitemaps:
+
+```python
+import asyncio
+from linktrace import Crawler, SitemapParser
+
+async def main():
+    async with Crawler() as crawler:
+        parser = SitemapParser(crawler.session)
+        urls = await parser.discover("https://realty.example.com/")
+        print(f"Sitemap lists {len(urls)} URLs")
+        for url in urls[:10]:
+            print(f"  {url}")
+
+asyncio.run(main())
+```

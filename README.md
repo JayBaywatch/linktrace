@@ -17,6 +17,9 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 
 - ⚡ **Async/await native** — Built on asyncio + aiohttp for concurrent requests
 - 🔗 **Automatic link classification** — Distinguishes internal vs external links by domain
+- 🎯 **URL filtering rules** — Include/exclude by regex, path prefix, extension, query param, or domain
+- 🎚️ **Configurable concurrency** — Tune `max_concurrency` and connection-pool limits for throughput
+- 🗺️ **Sitemap discovery** — Seed from `sitemap.xml` / robots.txt `Sitemap:`, including nested indexes
 - 📄 **Rich document model** — Full HTML source, parsed links, metadata, headers
 - 🔄 **Persistent sessions** — Connection pooling for 10-100x faster same-domain crawls
 - 🔁 **Retries + backoff** — Exponential backoff for transient errors (timeouts, 5xx)
@@ -77,6 +80,12 @@ Rich object containing:
 - `external_links` — links to other domains
 - `status_code`, `response_headers`, `domain` — metadata
 
+### CrawlRules
+Declarative include/exclude policy for which discovered URLs the Spider follows (regex, path prefix, extension, query param, domain). Passed as `Spider(rules=...)`.
+
+### SitemapParser
+Fetches and parses XML sitemaps (urlsets and nested indexes). Used when `Spider(use_sitemaps=True)`, or directly for sitemap inspection.
+
 See [Core Concepts](https://github.com/JayBaywatch/linktrace/blob/main/docs/core-concepts.md) for more.
 
 ## Configuration
@@ -111,6 +120,68 @@ spider = Spider(
 )
 # 2nd run will be 10-50x faster for same URLs
 ```
+
+### URL Filtering Rules
+
+By default the spider follows every internal link until `max_depth` is reached.
+Pass a `CrawlRules` object to keep the crawl focused and skip crawl traps (login
+pages, sort/calendar links, binaries, off-site domains):
+
+```python
+from linktrace import Spider, CrawlRules
+
+rules = CrawlRules(
+    allowed_domains=["realty.example.com"],      # stay on-site (subdomain-aware)
+    include_path_prefixes=["/homes-for-sale/"],  # only follow listing pages...
+    exclude_path_prefixes=["/login", "/privacy"],# ...never these
+    blocked_extensions=["pdf", "jpg", "png"],    # documents, not downloads
+    exclude_query_params=["sort", "page"],        # avoid faceted-search explosion
+    exclude_patterns=[r"/print/?$"],              # regex escape hatch
+)
+
+spider = Spider("https://realty.example.com/", max_depth=4, rules=rules)
+```
+
+A populated *allow* list (`allowed_domains`, `include_path_prefixes`,
+`allowed_extensions`, `include_patterns`) is a whitelist; a *block*/*exclude*
+list rejects matches. **Exclusions always win**, and an empty `CrawlRules()`
+(the default) allows everything. `rules.allows(url)` is pure and unit-testable.
+
+### Concurrency
+
+```python
+spider = Spider(
+    start_url="https://example.com",
+    max_concurrency=50,            # URLs fetched per batch (default: 10)
+    max_connections=200,           # total aiohttp pool size (default: 100)
+    max_connections_per_host=8,    # connections to one host (default: 10)
+)
+```
+
+Raise `max_concurrency` / `max_connections` to go faster across **many** hosts;
+keep `max_connections_per_host` modest (and pair with `request_delay` or
+`respect_robots_txt=True`) to stay polite to any single server.
+
+### Sitemap Discovery
+
+Seed the queue from a site's published document inventory before link-following
+begins. linktrace reads `Sitemap:` declarations from robots.txt (falling back to
+`/sitemap.xml`), follows sitemap indexes and nested sitemaps, and filters every
+discovered URL through your `CrawlRules`:
+
+```python
+spider = Spider(
+    start_url="https://realty.example.com/",
+    max_depth=2,
+    use_sitemaps=True,   # discover URLs from sitemap.xml / robots.txt Sitemap:
+    rules=rules,
+)
+documents = await spider.run_async()
+```
+
+Sitemap discovery is best-effort — if none exists, ordinary link-following still
+runs. You can also inspect sitemaps directly via `SitemapParser` or
+`Crawler.discover_sitemap_urls(base_url)`.
 
 ### SSL & Corporate Proxies
 
@@ -298,6 +369,8 @@ See [Examples](https://github.com/JayBaywatch/linktrace/blob/main/docs/examples.
 
 Interactive examples in `notebooks/`:
 - `crawl_cnn.ipynb` — Crawls CNN.com, analyzes link structure, demonstrates all export formats
+- `crawl_tax_assessor.ipynb` — Crawls a municipal property/GIS site, with callbacks and aggregation
+- `config_rules_sitemaps.ipynb` — URL filtering rules, configurable concurrency, and sitemap discovery
 
 ## API Reference
 
@@ -309,7 +382,8 @@ See [API Reference](https://github.com/JayBaywatch/linktrace/blob/main/docs/api-
 Use `ssl_verify=False` for self-signed certs (testing only), or `ssl_verify="/path/to/ca.pem"` for corporate proxies.
 
 ### "Too many connections"
-Reduce concurrency by lowering `max_retries` or increase timeouts. Default settings are conservative.
+Lower `max_concurrency` and/or `max_connections_per_host` to reduce parallel
+requests, and consider adding a `request_delay`. Defaults are conservative.
 
 ### "Crawler hits timeout on deep sites"
 Try DFS traversal instead of BFS, or increase `request_timeout`.
@@ -363,7 +437,7 @@ just test          # Run all tests
 just test-cov      # Run with coverage report
 ```
 
-All 91 tests pass. 100% of core crawling paths tested (rate limiting, broken link tracking, robots.txt, callbacks).
+All 122 tests pass. 100% of core crawling paths tested (rate limiting, broken link tracking, robots.txt, callbacks, URL filtering rules, sitemap discovery).
 
 ## Contributing
 

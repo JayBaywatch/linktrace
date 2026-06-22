@@ -25,7 +25,12 @@ Spider(
     accumulate_results: bool = False,
     request_delay: float = 0.0,
     user_agent: str = "linktrace/0.1.0",
-    respect_robots_txt: bool = True
+    respect_robots_txt: bool = True,
+    max_concurrency: int = 10,
+    max_connections: int = 100,
+    max_connections_per_host: int = 10,
+    rules: CrawlRules = None,
+    use_sitemaps: bool = False
 )
 ```
 
@@ -51,6 +56,13 @@ Spider(
 | `request_delay` | float | 0.0 | Minimum seconds between requests to same domain (0 = no forced delay) |
 | `user_agent` | str | "linktrace/0.1.0" | User-Agent header for requests (affects robots.txt rules) |
 | `respect_robots_txt` | bool | True | Parse and respect robots.txt Crawl-delay directives |
+| `max_concurrency` | int | 10 | Max URLs fetched concurrently per batch (must be ≥ 1) |
+| `max_connections` | int | 100 | Total size of the aiohttp connection pool |
+| `max_connections_per_host` | int | 10 | Max simultaneous connections to a single host |
+| `rules` | CrawlRules | None | URL include/exclude policy for discovered links (None = allow all) |
+| `use_sitemaps` | bool | False | Seed the queue from the site's sitemaps before link-following |
+
+**Raises:** `ValueError` if `max_concurrency < 1`.
 
 ### Methods
 
@@ -98,6 +110,11 @@ documents = spider.run()  # Blocks until complete
 | `request_delay` | float | Minimum delay between requests to same domain |
 | `user_agent` | str | User-Agent header value |
 | `respect_robots_txt` | bool | Whether to respect robots.txt rules |
+| `max_concurrency` | int | Max URLs fetched concurrently per batch |
+| `max_connections` | int | Total aiohttp connection pool size |
+| `max_connections_per_host` | int | Max connections to a single host |
+| `rules` | CrawlRules | URL filtering policy (always a CrawlRules; empty allows all) |
+| `use_sitemaps` | bool | Whether the queue is seeded from sitemaps |
 
 ### Callback Signature
 
@@ -146,7 +163,12 @@ Crawler(
     request_timeout: int = 30,
     cache_dir: str = None,
     max_retries: int = 3,
-    backoff_factor: int = 2
+    backoff_factor: int = 2,
+    request_delay: float = 0.0,
+    user_agent: str = "linktrace/0.1.0",
+    respect_robots_txt: bool = True,
+    max_connections: int = 100,
+    max_connections_per_host: int = 10
 )
 ```
 
@@ -158,6 +180,8 @@ Same as Spider, plus:
 |-----------|------|---------|-------------|
 | `log_level` | int | logging.DEBUG | Logging level |
 | `backoff_factor` | int | 2 | Exponential backoff multiplier (wait_time = 2^attempt * factor) |
+| `max_connections` | int | 100 | Total size of the aiohttp connection pool |
+| `max_connections_per_host` | int | 10 | Max simultaneous connections to a single host |
 
 ### Methods
 
@@ -196,6 +220,19 @@ async with Crawler() as crawler:
 - Returns Document even on 4xx/5xx (check `status_code`)
 - Automatic cookie handling
 
+#### `async discover_sitemap_urls(base_url: str) -> List[str]`
+
+Discover page URLs from the site's sitemaps. Reads `Sitemap:` declarations from
+robots.txt when available (and `respect_robots_txt=True`), otherwise falls back
+to `/sitemap.xml`. Follows sitemap indexes and nested sitemaps.
+
+```python
+async with Crawler() as crawler:
+    urls = await crawler.discover_sitemap_urls("https://example.com/")
+```
+
+**Returns:** De-duplicated list of page URLs (discovery order preserved).
+
 ### Attributes
 
 | Attribute | Type | Description |
@@ -207,6 +244,113 @@ async with Crawler() as crawler:
 | `request_timeout` | int | Request timeout in seconds |
 | `max_retries` | int | Max retry attempts |
 | `backoff_factor` | int | Exponential backoff multiplier |
+| `max_connections` | int | Total aiohttp connection pool size |
+| `max_connections_per_host` | int | Max connections to a single host |
+
+---
+
+## CrawlRules
+
+Declarative include/exclude policy for which discovered URLs the Spider follows.
+Pass an instance as `Spider(rules=...)`. All fields are optional; an empty
+`CrawlRules()` allows everything.
+
+### Constructor
+
+```python
+CrawlRules(
+    include_patterns: list[str] = [],
+    exclude_patterns: list[str] = [],
+    include_path_prefixes: list[str] = [],
+    exclude_path_prefixes: list[str] = [],
+    allowed_extensions: list[str] = [],
+    blocked_extensions: list[str] = [],
+    exclude_query_params: list[str] = [],
+    allowed_domains: list[str] = [],
+    blocked_domains: list[str] = []
+)
+```
+
+#### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `include_patterns` | list[str] | Regexes; if non-empty, the URL must match at least one |
+| `exclude_patterns` | list[str] | Regexes; any match rejects the URL |
+| `include_path_prefixes` | list[str] | If non-empty, the path must start with one of these |
+| `exclude_path_prefixes` | list[str] | Any path starting with one of these is rejected |
+| `allowed_extensions` | list[str] | If non-empty, only these file extensions are kept (use `""` for extensionless paths) |
+| `blocked_extensions` | list[str] | These file extensions are always rejected |
+| `exclude_query_params` | list[str] | URLs carrying any of these query keys are rejected (sort/page/calendar traps) |
+| `allowed_domains` | list[str] | If non-empty, the host must equal or be a subdomain of one of these |
+| `blocked_domains` | list[str] | Host equalling or being a subdomain of one of these is rejected |
+
+**Evaluation:** Deterministic, and **exclusions always win over inclusions**.
+Domain matching is subdomain-aware and ignores the port. Extension comparison is
+case-insensitive and a leading dot is optional (`"pdf"` and `".pdf"` are
+equivalent).
+
+### Methods
+
+#### `allows(url: str) -> bool`
+
+Return `True` if `url` passes every configured rule.
+
+```python
+rules = CrawlRules(exclude_path_prefixes=["/blog/"], blocked_extensions=["pdf"])
+rules.allows("https://example.com/homes/1")     # True
+rules.allows("https://example.com/blog/post")   # False
+rules.allows("https://example.com/flyer.pdf")   # False
+```
+
+---
+
+## SitemapParser
+
+Fetches and parses XML sitemaps, returning the page URLs they list. Used
+internally when `Spider(use_sitemaps=True)`, and usable directly for sitemap
+inspection.
+
+### Constructor
+
+```python
+SitemapParser(
+    session: aiohttp.ClientSession,
+    user_agent: str = "linktrace/0.1.0",
+    logger: logging.Logger = None,
+    max_sitemaps: int = 50,
+    max_depth: int = 5
+)
+```
+
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `session` | aiohttp.ClientSession | — | Session used to fetch sitemap documents |
+| `user_agent` | str | "linktrace/0.1.0" | User-Agent sent with sitemap requests |
+| `logger` | logging.Logger | None | Logger to use (defaults to module logger) |
+| `max_sitemaps` | int | 50 | Hard cap on sitemap documents fetched (guards against huge indexes) |
+| `max_depth` | int | 5 | Max nesting depth for sitemap-index recursion |
+
+### Methods
+
+#### `async discover(base_url: str, robots_sitemaps: list[str] = None) -> List[str]`
+
+Discover page URLs for `base_url`. Uses `robots_sitemaps` when provided,
+otherwise `{base_url}/sitemap.xml`. Follows sitemap indexes and nested sitemaps.
+
+**Returns:** De-duplicated list of page URLs (discovery order preserved).
+
+#### `static parse(content: bytes) -> tuple[str | None, list[str]]`
+
+Parse sitemap XML bytes into `(kind, locs)` where `kind` is `"index"`,
+`"urlset"`, or `None` (unparseable). Namespace-agnostic.
+
+```python
+kind, locs = SitemapParser.parse(b"<urlset><url><loc>https://x/a</loc></url></urlset>")
+# ("urlset", ["https://x/a"])
+```
 
 ---
 

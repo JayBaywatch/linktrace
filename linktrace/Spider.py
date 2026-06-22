@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from linktrace.Crawler import Crawler, Document
+from linktrace.rules import CrawlRules
 
 
 class Spider:
@@ -31,6 +32,11 @@ class Spider:
         request_delay: float = 0.0,
         user_agent: str = "linktrace/0.1.0",
         respect_robots_txt: bool = True,
+        max_concurrency: int = 10,
+        max_connections: int = 100,
+        max_connections_per_host: int = 10,
+        rules: CrawlRules | None = None,
+        use_sitemaps: bool = False,
     ) -> None:
         start_url = Crawler.normalize_url(start_url)
         self.start_url = start_url
@@ -43,6 +49,16 @@ class Spider:
         self.request_delay = request_delay
         self.user_agent = user_agent
         self.respect_robots_txt = respect_robots_txt
+
+        if max_concurrency < 1:
+            raise ValueError(f"max_concurrency must be >= 1, got {max_concurrency}.")
+        self.max_concurrency = max_concurrency
+        self.max_connections = max_connections
+        self.max_connections_per_host = max_connections_per_host
+
+        # Empty CrawlRules allows everything, preserving prior behavior.
+        self.rules = rules if rules is not None else CrawlRules()
+        self.use_sitemaps = use_sitemaps
 
         if traversal_strategy not in ("bfs", "dfs"):
             raise ValueError(
@@ -122,11 +138,16 @@ class Spider:
                 request_delay=self.request_delay,
                 user_agent=self.user_agent,
                 respect_robots_txt=self.respect_robots_txt,
+                max_connections=self.max_connections,
+                max_connections_per_host=self.max_connections_per_host,
             ) as crawler:
+                if self.use_sitemaps:
+                    await self._seed_from_sitemaps(crawler)
+
                 while self.to_visit:
                     async with self.lock:
                         batch: list[tuple[str, int]] = []
-                        batch_size = min(10, len(self.to_visit))
+                        batch_size = min(self.max_concurrency, len(self.to_visit))
                         for _ in range(batch_size):
                             if not self.to_visit:
                                 break
@@ -164,6 +185,32 @@ class Spider:
         else:
             return []
 
+    async def _seed_from_sitemaps(self, crawler: Crawler) -> None:
+        """Seed the queue with URLs discovered from the site's sitemaps.
+
+        Discovered URLs are normalized and filtered through the crawl rules, and
+        enqueued at depth 0 so their own links are still followed within
+        ``max_depth``.
+        """
+        try:
+            urls = await crawler.discover_sitemap_urls(self.start_url)
+        except Exception as e:
+            self._logger.warning(f"Sitemap discovery failed: {e}")
+            return
+
+        seeded = 0
+        async with self.lock:
+            for url in urls:
+                norm = Crawler.normalize_url(url)
+                if norm in self.discovered:
+                    continue
+                self.discovered.add(norm)
+                if not self.rules.allows(norm):
+                    continue
+                self.to_visit.append((norm, 0))
+                seeded += 1
+        self._logger.info(f"Seeded {seeded} URL(s) from sitemaps")
+
     async def crawl_and_collect(
         self, url: str, current_depth: int, crawler: Crawler
     ) -> None:
@@ -199,6 +246,10 @@ class Spider:
                             continue
 
                         self.discovered.add(link.url)
+                        if not self.rules.allows(link.url):
+                            self._logger.debug(f"Filtered by rules: {link.url}")
+                            continue
+
                         self.to_visit.append((link.url, current_depth + 1))
 
         except Exception as e:

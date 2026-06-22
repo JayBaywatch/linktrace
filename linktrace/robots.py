@@ -69,6 +69,24 @@ class RobotsManager:
             self._logger.debug(f"Error checking URL allowance for {url}: {e}")
             return True
 
+    async def get_sitemaps(self, url: str) -> list[str]:
+        """Return sitemap URLs declared in the domain's robots.txt.
+
+        Returns an empty list if robots.txt is unavailable or declares none.
+        """
+        domain = urlparse(url).netloc
+        parser = await self._get_robots_parser(domain)
+
+        if parser is None:
+            return []
+
+        try:
+            sitemaps = parser.site_maps()
+            return list(sitemaps) if sitemaps else []
+        except Exception as e:
+            self._logger.debug(f"Error extracting sitemaps for {domain}: {e}")
+            return []
+
     async def _get_robots_parser(self, domain: str) -> RobotFileParser | None:
         """Get cached robots.txt parser for domain, or fetch and cache it."""
         if domain in self._robots_cache:
