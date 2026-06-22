@@ -6,6 +6,8 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 
 **Not:** A Scrapy replacement. Scrapy is a powerful full-featured framework — linktrace is deliberately lightweight with no pipelines, middleware, or project scaffolding to configure. If you want crawling results in minutes rather than hours of setup, and a gentler learning curve, linktrace is for you.
 
+**Targeted crawling:** Scope a crawl with [URL filtering rules](getting-started.md#focus-the-crawl-with-filtering-rules) (regex, path, extension, query-param, domain), tune throughput with [configurable concurrency](getting-started.md#tune-concurrency), and seed from a site's [sitemaps](getting-started.md#seed-from-sitemaps).
+
 ## Quick Start
 
 ```bash

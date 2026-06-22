@@ -141,19 +141,68 @@ spider = Spider(
 documents = await spider.run_async()
 ```
 
-## Jupyter Notebook
+### Focus the Crawl with Filtering Rules
 
-See `notebooks/crawl_cnn.ipynb` for interactive examples with Jupyter:
+Follow only the URLs you care about and skip crawl traps (login pages,
+sort/calendar links, binaries, off-site domains):
+
+```python
+from linktrace import Spider, CrawlRules
+
+rules = CrawlRules(
+    allowed_domains=["example.com"],            # stay on-site (subdomain-aware)
+    include_path_prefixes=["/docs/"],           # only this section...
+    exclude_path_prefixes=["/docs/legacy/"],    # ...but not this part of it
+    blocked_extensions=["pdf", "zip"],          # documents, not downloads
+    exclude_query_params=["sort", "page"],       # avoid faceted-search traps
+)
+spider = Spider("https://example.com/", max_depth=3, rules=rules)
+documents = await spider.run_async()
+```
+
+Exclusions always win, and an empty `CrawlRules()` allows everything. See
+[Core Concepts](core-concepts.md#url-filtering-rules) for the full evaluation order.
+
+### Tune Concurrency
+
+```python
+spider = Spider(
+    start_url="https://example.com",
+    max_concurrency=50,            # URLs fetched per batch (default: 10)
+    max_connections=200,           # total aiohttp pool size (default: 100)
+    max_connections_per_host=8,    # connections to one host (default: 10)
+)
+documents = await spider.run_async()
+```
+
+Raise these to go faster across many hosts; keep `max_connections_per_host`
+modest (and pair with `request_delay`) to stay polite to a single server.
+
+### Seed from Sitemaps
+
+Discover URLs from the site's own sitemap before link-following begins:
+
+```python
+spider = Spider(
+    start_url="https://example.com/",
+    max_depth=2,
+    use_sitemaps=True,   # read sitemap.xml / robots.txt Sitemap: declarations
+)
+documents = await spider.run_async()
+```
+
+## Jupyter Notebooks
+
+See the `notebooks/` directory for interactive examples:
 
 ```bash
 jupyter notebook notebooks/crawl_cnn.ipynb
 ```
 
-The notebook demonstrates:
-- Basic crawling
-- Analyzing link structure
-- Exporting to JSON
-- Pandas/Polars/PyArrow analysis
+- **`crawl_cnn.ipynb`** — basic crawling, link-structure analysis, and exporting
+  to JSON / Pandas / Polars / PyArrow
+- **`config_rules_sitemaps.ipynb`** — URL filtering rules, configurable
+  concurrency, and sitemap discovery
 
 ## Next Steps
 
