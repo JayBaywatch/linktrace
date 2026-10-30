@@ -885,3 +885,28 @@ async def main():
 
 asyncio.run(main())
 ```
+
+## 28. Audit Redirects
+
+Redirects are followed automatically, and each Document records where it was
+actually served. Use that to find moved pages, `www`/apex mismatches, or links
+that bounce through a tracking redirect.
+
+```python
+import asyncio
+from linktrace import Spider
+
+async def main():
+    spider = Spider(start_url="https://example.com/", max_depth=2)
+    documents = await spider.run_async()
+
+    moved = [d for d in documents if d.redirected]
+    print(f"{len(moved)} of {len(documents)} pages were redirected")
+    for d in moved:
+        print(f"  {d.url}  ->  {d.final_url}  (HTTP {d.status_code})")
+
+asyncio.run(main())
+```
+
+Relative links on a redirected page are resolved against `final_url`, and the
+target URL is marked visited so the crawl never fetches it a second time.

@@ -54,6 +54,11 @@ async def main():
 asyncio.run(main())
 ```
 
+In a plain script you can skip the event loop boilerplate with
+`documents = Spider("https://example.com").run()`. For a JavaScript-rendered
+site add `fetcher=RoutingFetcher()`; for a crawl too big for memory add
+`flush_to="crawl.jsonl"`. Both are covered below.
+
 ## Installation
 
 ```bash
@@ -82,11 +87,12 @@ Low-level engine that fetches and parses individual documents. Handles retries, 
 
 ### Document
 Rich object containing:
-- `url` — page URL
+- `url` — page URL as requested; `final_url` — where it was actually served after redirects
 - `title` — HTML title tag
-- `source` — raw HTML
-- `internal_links` — links to same domain
-- `external_links` — links to other domains
+- `source` — raw HTML, or the rendered DOM when a browser fetcher produced it
+- `fetcher` — `"http"`, `"browser"`, or your own fetcher's name
+- `internal_links` / `external_links` — `HtmlLink` objects (`url`, `text`), classified by domain
+- `broken_internal_links` — `BrokenLink` objects for internal links whose target returned 4xx/5xx (filled after the crawl)
 - `status_code`, `response_headers`, `domain` — metadata
 
 ### CrawlRules
@@ -96,7 +102,7 @@ Declarative include/exclude policy for which discovered URLs the Spider follows 
 Fetches and parses XML sitemaps (urlsets and nested indexes). Used when `Spider(use_sitemaps=True)`, or directly for sitemap inspection.
 
 ### Fetchers
-The pluggable "get me the page" step. `HttpFetcher` (default) uses aiohttp; `BrowserFetcher` renders pages in headless Chromium; `RoutingFetcher` tries HTTP first and escalates to the browser only for pages that look like un-rendered SPA shells. Passed as `Spider(fetcher=...)`.
+The pluggable "get me the page" step. `HttpFetcher` (default) uses aiohttp; `BrowserFetcher` renders pages in headless Chromium; `RoutingFetcher` tries HTTP first and escalates to the browser only for pages that look like un-rendered SPA shells (the `looks_like_spa_shell` heuristic). Passed as `Spider(fetcher=...)`. Subclass `Fetcher` and return a `FetchResult` to plug in any other transport; raise `TransientFetchError` for failures the crawler should retry.
 
 See [Core Concepts](https://github.com/JayBaywatch/linktrace/blob/main/docs/core-concepts.md) for more.
 
@@ -222,6 +228,62 @@ print({doc.url: doc.fetcher for doc in documents})   # "http" or "browser"
 URLs straight to the browser. Robots.txt, rate limiting, retries and caching
 apply identically whichever fetcher is used. For hash-router apps
 (`/#/listings/42`) add `keep_hash_routes=True` so each route is its own URL.
+
+Not sure whether a site needs rendering? Probe it:
+
+```python
+from linktrace import Crawler, looks_like_spa_shell
+
+async with Crawler() as crawler:
+    result = await crawler.fetcher.fetch("https://app.example.com/", {})
+    print(looks_like_spa_shell(result))   # True → plain HTTP only sees the shell
+```
+
+### Bring Your Own Transport
+
+Any client can plug in. Subclass `Fetcher`, return a `FetchResult`, and raise
+`TransientFetchError` for failures the crawler should retry. Robots.txt,
+rate limiting, retries, caching and parsing all keep working:
+
+```python
+from linktrace import Spider, Fetcher, FetchResult, TransientFetchError
+
+class MyFetcher(Fetcher):
+    name = "mine"
+
+    async def open(self, ctx):          # optional: ctx has the shared aiohttp
+        self.client = make_client(ctx)  # session, timeout, user agent, SSL setting
+
+    async def fetch(self, url, headers):
+        status, body = await self.client.get(url, headers)
+        if status == 429:
+            raise TransientFetchError("rate limited")
+        return FetchResult(url, status, body=body if status == 200 else None,
+                           fetcher=self.name)
+
+spider = Spider("https://example.com", fetcher=MyFetcher())
+```
+
+### Guard Rails for Long Crawls
+
+Defaults are tuned to run unattended against large or badly behaved sites.
+Every knob is adjustable:
+
+```python
+spider = Spider(
+    start_url="https://example.com",
+    max_response_bytes=10 * 1024 * 1024,  # drop bodies over 10 MiB (default); None = no limit
+    max_retries=3,                        # jittered exponential backoff on timeouts and 5xx
+    cache_dir=".linktrace_cache",
+    cache_ttl=86400,                      # seconds an entry stays valid (default 1 day)
+    cache_max_bytes=2 * 1024**3,          # evict oldest entries past 2 GiB, on start
+    show_progress=True,                   # tqdm bar with visited/pending counts
+)
+```
+
+Redirects are followed and recorded: `doc.final_url` is where the page was
+served, relative links resolve against it, and the redirect target is marked
+visited so it is never fetched twice.
 
 ### SSL & Corporate Proxies
 
@@ -432,6 +494,7 @@ See [Examples](https://github.com/JayBaywatch/linktrace/blob/main/docs/examples.
 
 Interactive examples in `notebooks/`:
 - `crawl_cnn.ipynb` — Crawls CNN.com, analyzes link structure, demonstrates all export formats
+- `crawl_cnn_callbacks.ipynb` — Memory-efficient streaming with callbacks, and the one-argument `flush_to` alternative
 - `crawl_tax_assessor.ipynb` — Crawls a municipal property/GIS site, with callbacks and aggregation
 - `config_rules_sitemaps.ipynb` — URL filtering rules, configurable concurrency, sitemap discovery, crawling a JavaScript-rendered SPA with `RoutingFetcher`, and flushing a crawl to JSONL
 

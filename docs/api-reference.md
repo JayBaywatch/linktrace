@@ -272,6 +272,17 @@ Parse HTML into a Document without fetching. `base_url` (default `url`) is the
 URL the content was served from: relative links resolve against it and the
 internal/external split uses its host.
 
+#### `static normalize_url(url: str, keep_hash_routes: bool = False) -> str`
+
+Canonical form used for de-duplication: strips the fragment and normalizes an
+empty path to `/`. With `keep_hash_routes=True`, fragments beginning with `#/`
+or `#!` are kept so hash-router SPA routes stay distinct.
+
+```python
+Crawler.normalize_url("https://example.com#top")                        # "https://example.com/"
+Crawler.normalize_url("https://example.com/#/about", keep_hash_routes=True)  # "https://example.com/#/about"
+```
+
 #### `async discover_sitemap_urls(base_url: str) -> List[str]`
 
 Discover page URLs from the site's sitemaps. Reads `Sitemap:` declarations from

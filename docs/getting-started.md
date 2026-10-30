@@ -33,7 +33,7 @@ playwright install chromium     # one-time download of the browser build
 
 ```bash
 git clone https://github.com/JayBaywatch/linktrace
-cd webcrawler
+cd linktrace
 pip install -e .
 pip install -e ".[serializers]"  # Optional formats
 ```
@@ -53,6 +53,10 @@ async def main():
 
 asyncio.run(main())
 ```
+
+In a plain script, `Spider(...).run()` does the same without the `asyncio`
+boilerplate. Inside Jupyter or an async application, `await spider.run_async()`
+is the one to use.
 
 ### 2. Inspect Documents
 

@@ -50,9 +50,9 @@ documents = await spider.run_async()
 - `start_url` — Starting URL for crawl
 - `max_depth` — How many levels deep to follow links
 - `traversal_strategy` — "bfs" (breadth-first) or "dfs" (depth-first)
-- `visited` — Set of visited URLs
-- `to_visit` — Queue of (url, depth) tuples waiting to be crawled
-- `documents` — List of Document objects (results)
+- `visited` — Set of visited URLs (redirect targets included)
+- `to_visit` — `deque` of (url, depth) tuples waiting to be crawled
+- `documents` — List of Document objects (empty when `retain_documents=False`)
 
 ### Methods
 - `run_async()` — Async crawl, returns list of Documents
