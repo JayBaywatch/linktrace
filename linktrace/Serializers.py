@@ -45,6 +45,7 @@ class Serializers:
             "title": doc.title,
             "status_code": doc.status_code,
             "domain": doc.domain,
+            "final_url": doc.final_url,
             "fetcher": doc.fetcher,
             "response_headers": doc.response_headers,
             "internal_links": [
@@ -150,6 +151,7 @@ class Serializers:
                 "title": doc.title,
                 "status_code": doc.status_code,
                 "domain": doc.domain,
+                "final_url": doc.final_url,
                 "fetcher": doc.fetcher,
             }
 

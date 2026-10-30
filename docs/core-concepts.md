@@ -104,6 +104,10 @@ Default: 3 retries, backoff_factor=2. The jitter keeps a batch of concurrent
 retries against one host from landing at the same instant; set
 `backoff_jitter=False` for deterministic waits.
 
+The per-domain rate limit (`request_delay` or the robots.txt `Crawl-delay`)
+applies to every attempt, not just the first, so a retry never reaches the
+host sooner than the configured delay even when the backoff is shorter.
+
 ### Redirects
 
 aiohttp follows redirects. The Crawler records the served URL as
@@ -273,8 +277,10 @@ class Document:
 ```
 
 `broken_internal_links` is filled in once the crawl finishes, from the status
-codes of the pages actually visited. External links are never fetched, so
-`broken_external_links` stays empty.
+codes of the pages actually visited. Redirect targets count as visited, so a
+link to `/b` is marked when `/b` was only reached via `/a -> /b`; a page that
+was fetched directly always wins over a status learned through a redirect.
+External links are never fetched, so `broken_external_links` stays empty.
 
 ### HtmlLink
 
@@ -460,7 +466,9 @@ finishes. Two options change that:
 - **Flush to disk.** `flush_to="crawl.jsonl"` appends each page as one JSON
   object per line (the same schema as `Serializers.to_json`; add
   `flush_html=True` to include the source) as soon as it is crawled, and
-  likewise retains nothing.
+  likewise retains nothing. A write that fails (disk full, file removed)
+  raises `FlushError` and stops the crawl, so an incomplete file is never
+  mistaken for a finished one.
 
 Both set `retain_documents=False` implicitly; pass `retain_documents=True` to
 keep the in-memory list as well. `broken_internal_links` is only computed for

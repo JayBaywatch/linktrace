@@ -46,16 +46,24 @@ class HttpFetcher(Fetcher):
         max_response_bytes: int | None | object = _INHERIT,
     ) -> None:
         self._session = session
+        self._user_session = session is not None
         self._max_bytes_override = max_response_bytes
         self._max_bytes: int | None = (
             None if max_response_bytes is _INHERIT else max_response_bytes  # type: ignore[assignment]
         )
 
     async def open(self, ctx: FetchContext) -> None:
-        if self._session is None:
+        # Always rebind to the Crawler's current session unless the caller
+        # supplied one: a fetcher instance may be reused across crawls, and
+        # the previous Crawler closed its session on exit.
+        if not self._user_session:
             self._session = ctx.session
         if self._max_bytes_override is _INHERIT:
             self._max_bytes = ctx.max_response_bytes
+
+    async def close(self) -> None:
+        if not self._user_session:
+            self._session = None
 
     async def fetch(self, url: str, headers: dict[str, str]) -> FetchResult:
         if self._session is None:
@@ -100,9 +108,20 @@ class HttpFetcher(Fetcher):
         if declared and declared.isdigit() and int(declared) > limit:
             raise ResponseTooLarge(url, limit, int(declared))
 
-        raw = await response.content.read(limit + 1)
-        if len(raw) > limit:
+        # StreamReader.read(n) returns whatever is buffered, up to n bytes, so
+        # a single call can hand back only the first network chunk. Keep
+        # reading until EOF or until the body provably exceeds the limit.
+        chunks: list[bytes] = []
+        received = 0
+        while received <= limit:
+            chunk = await response.content.read(limit + 1 - received)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            received += len(chunk)
+        if received > limit:
             raise ResponseTooLarge(url, limit)
+        raw = b"".join(chunks)
 
         try:
             encoding = response.get_encoding()

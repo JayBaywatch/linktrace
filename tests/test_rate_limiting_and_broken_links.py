@@ -21,7 +21,8 @@ def mock_aiohttp_get(mock_get, status: int, body: str = "") -> None:
     mock_response.url = "https://example.com/"
     mock_response.history = []
     mock_response.text = AsyncMock(return_value=body)
-    mock_response.content.read = AsyncMock(return_value=body.encode())
+    # Behave like a real stream: the body, then EOF.
+    mock_response.content.read = AsyncMock(side_effect=[body.encode(), b""])
     mock_response.get_encoding = lambda: "utf-8"
 
     mock_cm = AsyncMock()

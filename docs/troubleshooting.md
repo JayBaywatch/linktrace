@@ -287,6 +287,21 @@ and by default all of them are kept until the crawl finishes.
 Both streaming modes set `retain_documents=False`; `broken_internal_links` is
 only computed for retained documents.
 
+### "FlushError: Could not write ... to crawl.jsonl"
+
+**Problem:** With `flush_to` set, a page could not be appended to the output
+file (disk full, the file or directory was removed, permissions changed).
+
+**Why it stops:** continuing would finish the crawl with rows silently
+missing. The exception's `__cause__` is the original `OSError`.
+
+**Solutions:**
+
+1. Free space or fix permissions, then re-run. `flush_to` appends, so pages
+   already written are kept; use `CrawlRules` or a different `start_url` to
+   avoid re-crawling them.
+2. Write to a different volume: `flush_to="/data/crawl.jsonl"`.
+
 ---
 
 ## Caching Issues

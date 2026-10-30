@@ -185,6 +185,12 @@ class Crawler:
                 )
             )
         except Exception:
+            # Release whatever the fetcher managed to start (e.g. a browser
+            # process whose context creation failed) before giving up.
+            try:
+                await self.fetcher.close()
+            except Exception:  # pragma: no cover - best-effort teardown
+                pass
             await self.session.close()
             self.session = None
             raise
@@ -335,15 +341,15 @@ class Crawler:
         else:
             delay = self.request_delay
 
-        # Enforce per-domain rate limiting
-        await self._rate_limit_domain(url, delay)
-
         # Fetch with retries. Transient errors and 5xx responses are retried
-        # with exponential backoff; other failures return immediately.
+        # with exponential backoff; other failures return immediately. The
+        # per-domain rate limit applies to every attempt, not just the first,
+        # so a retry never hits the host sooner than the configured delay.
         headers = {"User-Agent": self.user_agent}
         result: FetchResult | None = None
         for attempt in range(self.max_retries):
             last_attempt = attempt >= self.max_retries - 1
+            await self._rate_limit_domain(url, delay)
             try:
                 self._logger.debug(f"Fetching {url} (attempt {attempt + 1})")
                 result = await self.fetcher.fetch(url, headers)

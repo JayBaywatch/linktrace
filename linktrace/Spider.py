@@ -11,6 +11,15 @@ from linktrace.rules import CrawlRules
 from linktrace.Serializers import Serializers
 
 
+class FlushError(RuntimeError):
+    """Raised when ``Spider(flush_to=...)`` cannot write a crawled page.
+
+    A failed write means the output file is incomplete, so the crawl is
+    aborted rather than continuing and finishing with silently missing rows.
+    The original ``OSError`` is available as ``__cause__``.
+    """
+
+
 class Spider:
     def __init__(
         self,
@@ -229,7 +238,13 @@ class Spider:
                             self.crawl_and_collect(url, depth, crawler)
                             for url, depth in batch
                         ]
-                        await asyncio.gather(*tasks)
+                        # Let the whole batch settle, then surface a flush
+                        # failure: outstanding tasks have finished, nothing is
+                        # left half-written, and the caller sees the error.
+                        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                        for outcome in outcomes:
+                            if isinstance(outcome, BaseException):
+                                raise outcome
 
             self._mark_broken_links()
         finally:
@@ -262,8 +277,17 @@ class Spider:
         links are never fetched, so ``broken_external_links`` stays empty.
         Only retained documents are marked; with ``retain_documents=False``
         (streaming or ``flush_to`` crawls) there is nothing to mark.
+
+        Redirect targets are indexed too, so a link to ``/b`` resolves when
+        ``/b`` was only ever reached via ``/a -> /b``. A page fetched directly
+        always wins over a status learned through a redirect.
         """
-        status_by_url = {doc.url: doc.status_code for doc in self.documents}
+        status_by_url: dict[str, int] = {}
+        for doc in self.documents:
+            if doc.redirected:
+                status_by_url.setdefault(doc.final_url, doc.status_code)
+        for doc in self.documents:
+            status_by_url[doc.url] = doc.status_code
         for doc in self.documents:
             doc.broken_internal_links = [
                 BrokenLink(link.url, status_by_url[link.url])
@@ -333,7 +357,12 @@ class Spider:
                         self.accumulated_results.append(result)
 
                 if self._flush_file is not None:
-                    await self._flush_document(doc)
+                    try:
+                        await self._flush_document(doc)
+                    except Exception as e:
+                        raise FlushError(
+                            f"Could not write {url} to {self.flush_to}: {e}"
+                        ) from e
 
                 if not self.retain_documents:
                     # Free the heavy parts now; the Document object itself is
@@ -354,6 +383,10 @@ class Spider:
 
                         self.to_visit.append((link.url, current_depth + 1))
 
+        except FlushError as e:
+            # Not a per-page failure: the output file is now incomplete.
+            self._logger.error(str(e))
+            raise
         except Exception as e:
             self._logger.error(f"Failed to crawl {url}: {e}")
             if self.on_error is not None:

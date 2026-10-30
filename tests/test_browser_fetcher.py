@@ -4,6 +4,8 @@ Skipped automatically when Playwright or its Chromium build is not installed
 (``pip install 'linktrace[browser]' && playwright install chromium``).
 """
 
+import time
+
 import pytest
 
 from linktrace import BrowserFetcher, Crawler, RoutingFetcher, Spider
@@ -109,3 +111,32 @@ class TestBrowserFetcher:
     def test_max_pages_validated(self):
         with pytest.raises(ValueError):
             BrowserFetcher(max_pages=0)
+
+    async def test_error_page_skips_selector_wait(self, local_site):
+        """A 404 must not burn the selector timeout and become a retry."""
+        base = await local_site({"/missing": (404, "<h1>nope</h1>")})
+        fetcher = BrowserFetcher(
+            wait_until="domcontentloaded", wait_for_selector="#never-appears"
+        )
+        async with Crawler(
+            fetcher=fetcher, respect_robots_txt=False, request_timeout=5, max_retries=1
+        ) as crawler:
+            start = time.monotonic()
+            doc = await crawler.crawl_document_async(f"{base}/missing")
+            elapsed = time.monotonic() - start
+        assert doc is not None and doc.status_code == 404
+        assert elapsed < 4  # did not wait out the 5s selector timeout
+
+    async def test_size_limit_counts_utf8_bytes(self, local_site):
+        from linktrace import ResponseTooLarge
+
+        # 600 chars of a 2-byte character: under a 1000-char limit by length,
+        # over it by bytes once the HTML wrapper is added.
+        page = "<html><body><p>" + "é" * 600 + "</p></body></html>"
+        base = await local_site({"/wide": page})
+        async with Crawler(
+            fetcher=BrowserFetcher(), respect_robots_txt=False, max_response_bytes=1000
+        ) as crawler:
+            with pytest.raises(ResponseTooLarge) as exc:
+                await crawler.fetcher.fetch(f"{base}/wide", {})
+        assert exc.value.size > 1200

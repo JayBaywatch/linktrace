@@ -17,7 +17,7 @@ from linktrace.fetchers import (
 from linktrace.rules import CrawlRules
 from linktrace.Serializers import Serializers
 from linktrace.sitemap import SitemapParser
-from linktrace.Spider import Spider
+from linktrace.Spider import FlushError, Spider
 
 __all__ = [
     "BrokenLink",
@@ -30,6 +30,7 @@ __all__ = [
     "Fetcher",
     "FetchError",
     "FetchResult",
+    "FlushError",
     "HtmlLink",
     "HttpFetcher",
     "ResponseCache",

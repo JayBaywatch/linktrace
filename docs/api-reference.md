@@ -71,7 +71,7 @@ Spider(
 | `use_sitemaps` | bool | False | Seed the queue from the site's sitemaps before link-following |
 | `fetcher` | Fetcher | None | Transport used to fetch pages (None = `HttpFetcher()`). See [Fetchers](#fetchers) |
 | `keep_hash_routes` | bool | False | Keep `#/...` and `#!...` fragments as distinct URLs (hash-router SPAs) |
-| `flush_to` | str | None | Append each crawled page as one JSON line to this file as soon as it is crawled |
+| `flush_to` | str | None | Append each crawled page as one JSON line to this file as soon as it is crawled. A failed write raises `FlushError` and aborts the crawl |
 | `flush_html` | bool | False | Include page source in flushed lines |
 | `retain_documents` | bool | None | Keep `Document` objects in memory. Defaults to False when `flush_to` is set or a callback is used without `accumulate_results`, else True |
 | `max_response_bytes` | int | 10 MiB | Largest page body a fetcher may buffer; bigger responses are dropped (not retried). `None` disables |
@@ -367,9 +367,13 @@ HttpFetcher(session: aiohttp.ClientSession = None, *, max_response_bytes=<inheri
 The default. One `GET` per URL through the Crawler's session (or the one
 supplied). Rejects bodies over the size limit before buffering them: a
 `Content-Length` above the limit is refused outright, otherwise the body is
-read up to limit + 1 bytes. Reports the served URL as `final_url` and logs
-redirect chains at DEBUG. `max_response_bytes` overrides the Crawler's limit
-for this fetcher (`None` disables). `name = "http"`.
+streamed until EOF and abandoned as soon as it passes the limit. Reports the
+served URL as `final_url` and logs redirect chains at DEBUG.
+`max_response_bytes` overrides the Crawler's limit for this fetcher (`None`
+disables). `name = "http"`.
+
+An instance can be reused across crawls: it rebinds to each Crawler's session
+on `open()` unless you passed your own `session`, which is then kept as is.
 
 ### BrowserFetcher
 
@@ -395,7 +399,7 @@ Renders pages with Playwright. Requires `pip install linktrace[browser]` and
 | Parameter | Description |
 |-----------|-------------|
 | `wait_until` | When navigation counts as done. `"networkidle"` suits SPAs; use `"domcontentloaded"` + `wait_for_selector` for long-polling sites |
-| `wait_for_selector` | CSS selector to wait for after navigation (e.g. `"a[href]"`) |
+| `wait_for_selector` | CSS selector to wait for after navigation (e.g. `"a[href]"`). Skipped on error responses (status >= 400) so a 404 does not wait out the timeout |
 | `settle_ms` | Extra fixed wait after the above |
 | `max_pages` | Max concurrent tabs, independent of the Spider's `max_concurrency` |
 | `timeout` | Navigation timeout in seconds (defaults to the Crawler's `request_timeout`) |
@@ -578,7 +582,7 @@ Document(url: str, source: str = None)
 | `internal_links` | List[HtmlLink] | Links to same domain (successful crawl) |
 | `external_links` | List[HtmlLink] | Links to other domains (successful crawl) |
 | `links` | List[HtmlLink] | All links (internal + external) |
-| `broken_internal_links` | List[BrokenLink] | Internal links whose target page returned 4xx/5xx. Filled in by the Spider after the crawl, for retained documents |
+| `broken_internal_links` | List[BrokenLink] | Internal links whose target page returned 4xx/5xx. Filled in by the Spider after the crawl, for retained documents. Links to a redirect target resolve too; a directly fetched status wins over one learned through a redirect |
 | `broken_external_links` | List[BrokenLink] | Always empty: external links are not fetched |
 
 ### Properties
@@ -709,6 +713,7 @@ serializer.to_json("output.json", include_html=False)
     "title": "Example",
     "status_code": 200,
     "domain": "example",
+    "final_url": "https://example.com/",
     "fetcher": "http",
     "response_headers": {...},
     "internal_links": [{"url": "...", "text": "..."}],
@@ -729,7 +734,7 @@ print(df[["url", "title", "link_url", "link_type"]].head())
 **Returns:** pandas DataFrame
 
 **Columns:**
-- `url`, `title`, `status_code`, `domain`, `fetcher`
+- `url`, `title`, `status_code`, `domain`, `final_url`, `fetcher`
 - `link_url`, `link_text`, `link_type` (internal/external/None)
 - `html` (if include_html=True)
 
@@ -820,6 +825,26 @@ class CrawlException(Exception):
     url: str        # URL that caused error
     message: str    # Error message
 ```
+
+#### `FlushError`
+
+Raised by `Spider.run_async()` when `flush_to` is set and a page cannot be
+written (disk full, file removed, permissions). The crawl stops rather than
+finishing with silently missing lines; the original `OSError` is available as
+`__cause__`. Pages already written stay in the file, so the crawl can be
+resumed by appending to it.
+
+```python
+from linktrace import FlushError
+
+try:
+    await spider.run_async()
+except FlushError as e:
+    print(f"Output incomplete: {e}")   # e.__cause__ is the OSError
+```
+
+Fetcher-level exceptions (`FetchError`, `TransientFetchError`,
+`ResponseTooLarge`) are listed under [Fetchers](#exceptions).
 
 ---
 

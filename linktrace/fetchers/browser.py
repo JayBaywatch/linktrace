@@ -52,7 +52,8 @@ class BrowserFetcher(Fetcher):
             ``wait_for_selector`` for sites with long-polling connections that
             never go idle.
         wait_for_selector: Optional CSS selector to wait for after navigation,
-            e.g. ``"a[href]"`` or ``"#listings .card"``.
+            e.g. ``"a[href]"`` or ``"#listings .card"``. Not applied to error
+            responses (status >= 400), which never render the app.
         settle_ms: Extra fixed delay after the waits above, for apps that
             render in a second pass. Default ``0``.
         max_pages: Maximum tabs open at once (default ``4``).
@@ -191,11 +192,15 @@ class BrowserFetcher(Fetcher):
                     response = await page.goto(
                         url, wait_until=self.wait_until, timeout=self._timeout_ms
                     )
-                    if self.wait_for_selector:
+                    # Error pages never render the app, so waiting for its
+                    # selector would only burn the full timeout and turn a
+                    # plain 404 into a retried "transient" failure.
+                    rendered_ok = response is None or response.status < 400
+                    if self.wait_for_selector and rendered_ok:
                         await page.wait_for_selector(
                             self.wait_for_selector, timeout=self._timeout_ms
                         )
-                    if self.settle_ms:
+                    if self.settle_ms and rendered_ok:
                         await page.wait_for_timeout(self.settle_ms)
                     body = await page.content()
                 except self._timeout_error as e:
@@ -212,8 +217,12 @@ class BrowserFetcher(Fetcher):
             finally:
                 await page.close()
 
-        if self._max_bytes is not None and len(body) > self._max_bytes:
-            raise ResponseTooLarge(url, self._max_bytes, len(body))
+        if self._max_bytes is not None:
+            # Compare bytes, not characters: the limit is a byte budget and
+            # non-ASCII pages are larger on the wire than len(str) suggests.
+            size = len(body.encode("utf-8"))
+            if size > self._max_bytes:
+                raise ResponseTooLarge(url, self._max_bytes, size)
 
         return FetchResult(
             url=url,

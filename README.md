@@ -364,7 +364,9 @@ await spider.run_async()      # returns []
 ```
 
 Streaming and flushing default to `retain_documents=False`; pass
-`retain_documents=True` to keep the `Document` list as well.
+`retain_documents=True` to keep the `Document` list as well. If a line cannot
+be written (disk full, file removed) the crawl stops with a `FlushError`
+instead of finishing with rows silently missing.
 
 ### Traversal Strategies
 
