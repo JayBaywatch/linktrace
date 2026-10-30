@@ -165,8 +165,11 @@ class TestBrokenLinkTracking:
 
     @pytest.mark.asyncio
     async def test_http_5xx_tracked_as_broken(self):
-        """HTTP 5xx responses should return Document with broken link."""
-        crawler = Crawler()
+        """HTTP 5xx responses should return Document with broken link.
+
+        5xx responses are retried with backoff, so use a single attempt here.
+        """
+        crawler = Crawler(max_retries=1)
         async with crawler:
             with patch("aiohttp.ClientSession.get") as mock_get:
                 mock_response = AsyncMock()

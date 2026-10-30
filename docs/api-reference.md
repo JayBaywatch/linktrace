@@ -30,7 +30,12 @@ Spider(
     max_connections: int = 100,
     max_connections_per_host: int = 10,
     rules: CrawlRules = None,
-    use_sitemaps: bool = False
+    use_sitemaps: bool = False,
+    fetcher: Fetcher = None,
+    keep_hash_routes: bool = False,
+    flush_to: str = None,
+    flush_html: bool = False,
+    retain_documents: bool = None
 )
 ```
 
@@ -61,6 +66,11 @@ Spider(
 | `max_connections_per_host` | int | 10 | Max simultaneous connections to a single host |
 | `rules` | CrawlRules | None | URL include/exclude policy for discovered links (None = allow all) |
 | `use_sitemaps` | bool | False | Seed the queue from the site's sitemaps before link-following |
+| `fetcher` | Fetcher | None | Transport used to fetch pages (None = `HttpFetcher()`). See [Fetchers](#fetchers) |
+| `keep_hash_routes` | bool | False | Keep `#/...` and `#!...` fragments as distinct URLs (hash-router SPAs) |
+| `flush_to` | str | None | Append each crawled page as one JSON line to this file as soon as it is crawled |
+| `flush_html` | bool | False | Include page source in flushed lines |
+| `retain_documents` | bool | None | Keep `Document` objects in memory. Defaults to False when `flush_to` is set or a callback is used without `accumulate_results`, else True |
 
 **Raises:** `ValueError` if `max_concurrency < 1`.
 
@@ -82,7 +92,8 @@ documents = await spider.run_async()
 
 #### `run() -> List[Document]`
 
-Crawl synchronously (blocking). Use `asyncio.run()` wrapper for async context.
+Crawl synchronously (blocking). A convenience wrapper around `run_async()` for
+scripts.
 
 ```python
 spider = Spider(start_url="https://example.com")
@@ -90,6 +101,9 @@ documents = spider.run()  # Blocks until complete
 ```
 
 **Returns:** List of Document objects
+
+**Raises:** `RuntimeError` if called from inside a running event loop (Jupyter,
+an async application). Use `await spider.run_async()` there.
 
 ### Attributes
 
@@ -115,6 +129,10 @@ documents = spider.run()  # Blocks until complete
 | `max_connections_per_host` | int | Max connections to a single host |
 | `rules` | CrawlRules | URL filtering policy (always a CrawlRules; empty allows all) |
 | `use_sitemaps` | bool | Whether the queue is seeded from sitemaps |
+| `fetcher` | Fetcher \| None | Fetcher passed to the Crawler (None = default HTTP) |
+| `keep_hash_routes` | bool | Whether hash-router fragments are preserved |
+| `flush_to` | str \| None | JSONL path pages are streamed to |
+| `retain_documents` | bool | Whether Documents are kept in memory (resolved from the constructor args) |
 
 ### Callback Signature
 
@@ -140,11 +158,15 @@ async def on_crawl_complete() -> None:
 
 ### Return Behavior
 
-| Callback | `accumulate_results` | Return Value |
-|----------|----------------------|--------------|
-| None | Any | List of all Documents |
-| Provided | False | Empty list [] |
-| Provided | True | List of accumulated callback returns |
+| Callback | `accumulate_results` | Return Value | Documents retained? |
+|----------|----------------------|--------------|---------------------|
+| None | Any | List of all Documents | Yes |
+| Provided | False | Empty list [] | No (streaming) |
+| Provided | True | List of accumulated callback returns | Yes |
+
+`flush_to` returns `[]` and retains nothing unless `retain_documents=True`.
+When documents are not retained, `source` and `dom` are cleared after the
+callback runs and `broken_internal_links` is not computed.
 
 ---
 
@@ -168,7 +190,9 @@ Crawler(
     user_agent: str = "linktrace/0.1.0",
     respect_robots_txt: bool = True,
     max_connections: int = 100,
-    max_connections_per_host: int = 10
+    max_connections_per_host: int = 10,
+    fetcher: Fetcher = None,
+    keep_hash_routes: bool = False
 )
 ```
 
@@ -182,12 +206,15 @@ Same as Spider, plus:
 | `backoff_factor` | int | 2 | Exponential backoff multiplier (wait_time = 2^attempt * factor) |
 | `max_connections` | int | 100 | Total size of the aiohttp connection pool |
 | `max_connections_per_host` | int | 10 | Max simultaneous connections to a single host |
+| `fetcher` | Fetcher | None | Transport used to fetch pages (None = `HttpFetcher()`) |
+| `keep_hash_routes` | bool | False | Keep `#/...` and `#!...` fragments as distinct URLs |
 
 ### Methods
 
 #### `async __aenter__() -> Crawler`
 
-Enter async context manager. Creates persistent aiohttp session.
+Enter async context manager. Creates the persistent aiohttp session, then
+calls `fetcher.open(FetchContext)`.
 
 ```python
 async with Crawler(...) as crawler:
@@ -196,7 +223,7 @@ async with Crawler(...) as crawler:
 
 #### `async __aexit__(exc_type, exc_val, exc_tb)`
 
-Exit async context manager. Closes session.
+Exit async context manager. Calls `fetcher.close()`, then closes the session.
 
 #### `async crawl_document_async(url: str) -> Document`
 
@@ -216,9 +243,10 @@ async with Crawler() as crawler:
 
 **Notes:**
 - Checks cache first if `cache_dir` configured
-- Retries transient errors up to `max_retries` times
-- Returns Document even on 4xx/5xx (check `status_code`)
+- Retries `TransientFetchError` and 5xx responses up to `max_retries` times with exponential backoff
+- Returns Document even on 4xx/5xx (check `status_code`); returns `None` when every attempt failed with an error
 - Automatic cookie handling
+- `Document.fetcher` names the fetcher that produced the page
 
 #### `async discover_sitemap_urls(base_url: str) -> List[str]`
 
@@ -238,6 +266,8 @@ async with Crawler() as crawler:
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `session` | aiohttp.ClientSession | HTTP session (None until context entered) |
+| `fetcher` | Fetcher | The fetcher in use (an `HttpFetcher` by default) |
+| `keep_hash_routes` | bool | Whether hash-router fragments are preserved |
 | `cache` | ResponseCache | Cache object (None if cache_dir not set) |
 | `ssl_verify` | bool\|str | SSL verification setting |
 | `verify_hostname` | bool | Hostname verification setting |
@@ -246,6 +276,125 @@ async with Crawler() as crawler:
 | `backoff_factor` | int | Exponential backoff multiplier |
 | `max_connections` | int | Total aiohttp connection pool size |
 | `max_connections_per_host` | int | Max connections to a single host |
+
+---
+
+## Fetchers
+
+The pluggable transport used by the Crawler. All fetchers live in
+`linktrace.fetchers` and are re-exported from `linktrace`.
+
+### Fetcher (base class)
+
+```python
+class Fetcher(ABC):
+    name: str = "custom"
+    async def open(self, ctx: FetchContext) -> None: ...   # optional
+    async def close(self) -> None: ...                     # optional
+    async def fetch(self, url: str, headers: dict[str, str]) -> FetchResult: ...
+```
+
+Subclass it and implement `fetch`. `open`/`close` are called once per crawl
+by the Crawler's context manager. Raise `TransientFetchError` for failures the
+Crawler should retry and `FetchError` for those it should not. `name` is
+recorded on `Document.fetcher` and namespaces cache entries.
+
+### FetchResult
+
+```python
+FetchResult(url: str, status: int, headers: dict = {}, body: str | None = None, fetcher: str = "http")
+```
+
+`body` should be `None` for non-200 responses.
+
+### FetchContext
+
+Passed to `Fetcher.open`:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `session` | aiohttp.ClientSession | The Crawler's shared session (pooling, cookies, SSL) |
+| `request_timeout` | float | Per-request timeout in seconds |
+| `user_agent` | str | User-Agent for the crawl |
+| `ssl_verify` | bool \| str | The Crawler's SSL setting |
+
+### HttpFetcher
+
+```python
+HttpFetcher(session: aiohttp.ClientSession = None)
+```
+
+The default. One `GET` per URL through the Crawler's session (or the one
+supplied). `name = "http"`.
+
+### BrowserFetcher
+
+```python
+BrowserFetcher(
+    browser: "chromium" | "firefox" | "webkit" = "chromium",
+    headless: bool = True,
+    wait_until: "commit" | "domcontentloaded" | "load" | "networkidle" = "networkidle",
+    wait_for_selector: str = None,
+    settle_ms: int = 0,
+    max_pages: int = 4,
+    timeout: float = None,
+    block_resources: Iterable[str] = ("image", "media", "font"),
+    viewport: dict[str, int] = None,
+    launch_args: list[str] = None,
+    ignore_https_errors: bool = None,
+)
+```
+
+Renders pages with Playwright. Requires `pip install linktrace[browser]` and
+`playwright install chromium`. `name = "browser"`.
+
+| Parameter | Description |
+|-----------|-------------|
+| `wait_until` | When navigation counts as done. `"networkidle"` suits SPAs; use `"domcontentloaded"` + `wait_for_selector` for long-polling sites |
+| `wait_for_selector` | CSS selector to wait for after navigation (e.g. `"a[href]"`) |
+| `settle_ms` | Extra fixed wait after the above |
+| `max_pages` | Max concurrent tabs, independent of the Spider's `max_concurrency` |
+| `timeout` | Navigation timeout in seconds (defaults to the Crawler's `request_timeout`) |
+| `block_resources` | Playwright resource types to abort; `()` loads everything |
+| `ignore_https_errors` | Defaults to `True` only when the Crawler has `ssl_verify=False` |
+
+**Raises:** `ImportError` from `open()` if Playwright is missing;
+`RuntimeError` if the browser binary is not installed. Navigation timeouts are
+raised as `TransientFetchError` (retried); other Playwright errors as
+`FetchError`.
+
+### RoutingFetcher
+
+```python
+RoutingFetcher(
+    default: Fetcher = None,          # HttpFetcher()
+    fallback: Fetcher = None,         # BrowserFetcher()
+    render_patterns: Iterable[str] = (),
+    route: Callable[[str], bool] = None,
+    escalate: Callable[[FetchResult], bool] = looks_like_spa_shell,
+)
+```
+
+Fetches with `default`, then re-fetches with `fallback` if `escalate(result)`
+is true. URLs matching `render_patterns` or for which `route(url)` is true skip
+`default`. `escalate=None` disables escalation. The `escalations` attribute
+counts re-fetches. `name = "routing"`.
+
+#### `needs_render(url: str) -> bool`
+
+True if `url` is routed straight to `fallback`.
+
+### `looks_like_spa_shell(result: FetchResult) -> bool`
+
+Cheap regex heuristic for un-rendered SPA shells: a 200 body with a
+`<noscript>` mentioning JavaScript, an empty mount element
+(`<div id="root"></div>`, `#app`, `#__next`, ...), or no `<a href>` but an
+external `<script src>`.
+
+### Exceptions
+
+- `FetchError` — non-retryable fetch failure.
+- `TransientFetchError(FetchError)` — retried by the Crawler with backoff.
 
 ---
 
@@ -377,12 +526,13 @@ Document(url: str, source: str = None)
 | `title` | str | HTML `<title>` tag content |
 | `status_code` | int | HTTP status code |
 | `response_headers` | dict | HTTP response headers |
+| `fetcher` | str | Name of the fetcher that produced the page (`"http"`, `"browser"`, ...) |
 | `domain` | str | Domain extracted from URL (read-only property) |
 | `internal_links` | List[HtmlLink] | Links to same domain (successful crawl) |
 | `external_links` | List[HtmlLink] | Links to other domains (successful crawl) |
 | `links` | List[HtmlLink] | All links (internal + external) |
-| `broken_internal_links` | List[BrokenLink] | Internal links with HTTP error (4xx, 5xx) |
-| `broken_external_links` | List[BrokenLink] | External links with HTTP error (4xx, 5xx) |
+| `broken_internal_links` | List[BrokenLink] | Internal links whose target page returned 4xx/5xx. Filled in by the Spider after the crawl, for retained documents |
+| `broken_external_links` | List[BrokenLink] | Always empty: external links are not fetched |
 
 ### Properties
 
@@ -476,6 +626,8 @@ for doc in documents:
 
 ---
 
+## Serializers
+
 Export documents to multiple formats.
 
 ### Constructor
@@ -510,6 +662,7 @@ serializer.to_json("output.json", include_html=False)
     "title": "Example",
     "status_code": 200,
     "domain": "example",
+    "fetcher": "http",
     "response_headers": {...},
     "internal_links": [{"url": "...", "text": "..."}],
     "external_links": [...]
@@ -529,9 +682,14 @@ print(df[["url", "title", "link_url", "link_type"]].head())
 **Returns:** pandas DataFrame
 
 **Columns:**
-- `url`, `title`, `status_code`, `domain`
+- `url`, `title`, `status_code`, `domain`, `fetcher`
 - `link_url`, `link_text`, `link_type` (internal/external/None)
 - `html` (if include_html=True)
+
+#### `static document_to_dict(doc: Document, include_html: bool = False) -> dict`
+
+The per-document structure used by `to_json` and by `Spider(flush_to=...)`,
+one object per JSONL line.
 
 **Notes:**
 - One row per link
@@ -572,13 +730,16 @@ ResponseCache(cache_dir: str, ttl_seconds: int = 86400)
 
 ### Methods
 
-#### `async get(url: str) -> CachedResponse | None`
+#### `async get(url: str, *, namespace: str = None) -> CachedResponse | None`
 
-Retrieve cached response if not expired.
+Retrieve cached response if not expired. `namespace` selects a separate entry
+for the same URL; the Crawler passes the fetcher name for non-default fetchers
+and `None` for plain HTTP, so existing cache directories keep working.
 
-#### `async set(url: str, status_code: int, headers: dict, content: str) -> None`
+#### `async set(url: str, status_code: int, headers: dict, content: str, *, namespace: str = None, fetcher: str = "http") -> None`
 
-Store response in cache.
+Store response in cache. `fetcher` is recorded and restored onto
+`Document.fetcher` on a cache hit.
 
 #### `async clear() -> None`
 

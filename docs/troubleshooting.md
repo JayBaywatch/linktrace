@@ -133,11 +133,37 @@ for link in doc.internal_links[:3]:
 
 **Common causes:**
 - Relative links not resolved correctly
-- JavaScript-generated links (linktrace doesn't execute JS)
+- JavaScript-generated links (the default HTTP fetcher doesn't execute JS)
 - Links hidden behind `onclick` or `data-href`
+- Hash-router URLs (`/#/page`) collapsing to one URL
 - Page returned error status (check `doc.status_code`)
 
-**Solution for JS-heavy sites:** Use Selenium or Playwright instead.
+**Solution for JS-heavy sites:** render in a headless browser.
+
+```python
+from linktrace import Spider, RoutingFetcher
+
+spider = Spider(
+    start_url="https://app.example.com/",
+    fetcher=RoutingFetcher(),      # HTTP first, browser when the page looks like an SPA
+    keep_hash_routes=True,         # only if routes look like /#/...
+)
+```
+
+Requires `pip install linktrace[browser]` and `playwright install chromium`.
+Quick check that rendering is the problem: `looks_like_spa_shell` on the
+raw response.
+
+```python
+from linktrace import Crawler, looks_like_spa_shell
+
+async with Crawler() as crawler:
+    result = await crawler.fetcher.fetch("https://app.example.com/", {})
+    print(looks_like_spa_shell(result))   # True → you need BrowserFetcher
+```
+
+Links driven purely by `onclick` handlers have no `href` and stay out of
+reach even when rendered.
 
 ### "Wrong internal/external classification"
 
@@ -164,6 +190,89 @@ link.url = "https://www.example.com"  # "www" prefix
 for link in doc.links:
     print(f"{link.url} → {link.url.split('/')[2]}")
 ```
+
+---
+
+## Browser Fetcher Issues
+
+### "BrowserFetcher requires Playwright"
+
+**Problem:** The `browser` extra is not installed.
+
+```bash
+pip install "linktrace[browser]"
+playwright install chromium
+```
+
+### "Could not launch chromium" / "Executable doesn't exist"
+
+**Problem:** Playwright is installed but its browser build is not.
+
+```bash
+playwright install chromium
+```
+
+In Docker use the `mcr.microsoft.com/playwright/python` base image, or run
+`playwright install --with-deps chromium` to pull system libraries too.
+
+### "Browser timeout" on every page
+
+**Problem:** `wait_until="networkidle"` never fires because the site keeps a
+long-polling or websocket connection open.
+
+**Solution:** Wait for the DOM and a selector instead:
+
+```python
+BrowserFetcher(wait_until="domcontentloaded", wait_for_selector="a[href]")
+```
+
+Timeouts are retried like any transient error; lower `max_retries` if a site
+is consistently slow rather than flaky.
+
+### Rendered pages still have no links
+
+- Confirm the crawl actually used the browser: `doc.fetcher == "browser"`.
+  With `RoutingFetcher`, a page that doesn't trip the SPA heuristic stays on
+  HTTP; add it to `render_patterns`.
+- The app may render links only after an XHR completes; add
+  `wait_for_selector` for an element that appears with the data, or
+  `settle_ms=500`.
+- A stale cache entry from an HTTP crawl is never served to a browser crawl
+  (entries are namespaced by fetcher), but clearing `cache_dir` rules it out.
+
+### Browser crawl is slow
+
+- Keep `max_pages` small (default 4); more tabs rarely helps on one host.
+- Prefer `RoutingFetcher` so only SPA pages are rendered.
+- Leave `block_resources` at its default (images, media, fonts are skipped).
+- Enable `cache_dir` so repeat crawls skip rendering entirely.
+
+---
+
+## Memory Issues
+
+### "Crawl runs out of memory"
+
+**Problem:** Every `Document` holds its HTML (and rendered DOMs are larger),
+and by default all of them are kept until the crawl finishes.
+
+**Solutions:**
+
+1. **Flush to disk** and keep nothing in memory:
+   ```python
+   spider = Spider(start_url="...", flush_to="crawl.jsonl")
+   await spider.run_async()   # returns []; read crawl.jsonl afterwards
+   ```
+
+2. **Stream through a callback** (documents are released after it runs):
+   ```python
+   spider = Spider(start_url="...", on_page_crawled=handle, accumulate_results=False)
+   ```
+
+3. Lower `max_depth`, tighten `CrawlRules`, or use DFS for a smaller queue.
+
+Both streaming modes set `retain_documents=False`; `broken_internal_links` is
+only computed for retained documents.
 
 ---
 
@@ -448,14 +557,25 @@ spider = Spider(start_url="...", traversal_strategy="dfs-fast")
 spider = Spider(start_url="...", traversal_strategy="dfs")  # or "bfs"
 ```
 
-### ❌ Expecting JavaScript execution
+### ❌ Expecting JavaScript execution from the default fetcher
 
 ```python
-# Won't work - linktrace doesn't execute JavaScript
+# Finds nothing - the default HTTP fetcher doesn't execute JavaScript
 spider = Spider(start_url="https://react-app.example.com")
-documents = await spider.run_async()
 
-# Solution: Use Playwright or Selenium for JS-heavy sites
+# Correct: render in a headless browser (pip install linktrace[browser])
+from linktrace import RoutingFetcher
+spider = Spider(start_url="https://react-app.example.com", fetcher=RoutingFetcher())
+```
+
+### ❌ Calling `run()` inside Jupyter
+
+```python
+# Wrong - Jupyter already runs an event loop
+documents = spider.run()   # RuntimeError
+
+# Correct
+documents = await spider.run_async()
 ```
 
 ---

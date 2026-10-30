@@ -249,7 +249,9 @@ asyncio.run(main())
 
 ## 10. Find Broken Internal Links
 
-Identify 404s and other errors on internal links.
+Identify 404s and other errors on internal links. After the crawl, every
+retained Document carries `broken_internal_links`: the internal links whose
+target page came back with a 4xx/5xx status.
 
 ```python
 from linktrace import Spider
@@ -257,27 +259,14 @@ from linktrace import Spider
 async def main():
     spider = Spider(start_url="https://example.com", max_depth=2)
     documents = await spider.run_async()
-    
-    broken = []
+
+    total = 0
     for doc in documents:
-        for link in doc.internal_links:
-            # Find if this link was also crawled
-            linked_doc = next(
-                (d for d in documents if d.url == link.url),
-                None
-            )
-            
-            if linked_doc and linked_doc.status_code != 200:
-                broken.append({
-                    'from': doc.url,
-                    'to': link.url,
-                    'status': linked_doc.status_code,
-                    'text': link.text
-                })
-    
-    print(f"Found {len(broken)} broken internal links:")
-    for item in broken:
-        print(f"  {item['from']} → {item['to']} ({item['status']})")
+        for broken in doc.broken_internal_links:
+            total += 1
+            print(f"  {doc.url} → {broken.url} (HTTP {broken.status_code})")
+
+    print(f"Found {total} broken internal links")
 
 asyncio.run(main())
 ```
@@ -748,6 +737,151 @@ async def main():
         print(f"Sitemap lists {len(urls)} URLs")
         for url in urls[:10]:
             print(f"  {url}")
+
+asyncio.run(main())
+```
+
+## 24. Crawl a JavaScript-Rendered Site (SPA)
+
+React, Vue and Angular apps ship an empty HTML shell and build their links in
+the browser, so plain HTTP finds nothing. `BrowserFetcher` renders every page
+in headless Chromium before linktrace parses it. Requires
+`pip install linktrace[browser]` and a one-time `playwright install chromium`.
+
+```python
+import asyncio
+from linktrace import Spider, BrowserFetcher, CrawlRules
+
+async def main():
+    spider = Spider(
+        start_url="https://listings.example.com/",
+        max_depth=2,
+        fetcher=BrowserFetcher(
+            wait_until="networkidle",      # let the app finish its XHR calls
+            wait_for_selector="a[href]",   # ...and actually render links
+            max_pages=4,                   # concurrent tabs
+        ),
+        rules=CrawlRules(include_path_prefixes=["/listing/", "/"]),
+        request_delay=0.5,                 # rate limiting still applies
+    )
+    documents = await spider.run_async()
+
+    for doc in documents:
+        print(f"[{doc.fetcher}] {doc.url}: {len(doc.internal_links)} links")
+
+asyncio.run(main())
+```
+
+!!! tip "Hash-router apps"
+    If the app's routes look like `/#/listing/42`, add
+    `keep_hash_routes=True` to the Spider. Without it every route normalizes
+    to the same bare URL and the crawl stops after one page.
+
+## 25. HTTP First, Browser Only When Needed
+
+Rendering is 10-50x slower than an HTTP request. `RoutingFetcher` fetches
+each URL with plain HTTP first and only re-fetches in the browser when the
+response looks like an un-rendered SPA shell (a `<noscript>` telling you to
+enable JavaScript, an empty `<div id="root">`, or no links but a script
+bundle). Mixed sites, where a server-rendered marketing site wraps a
+client-rendered app, get the cheap path for most pages.
+
+```python
+import asyncio
+from linktrace import Spider, RoutingFetcher, BrowserFetcher
+
+async def main():
+    routing = RoutingFetcher(
+        fallback=BrowserFetcher(max_pages=2),
+        render_patterns=[r"/search", r"/map"],   # always render these
+    )
+    spider = Spider(
+        start_url="https://realty.example.com/",
+        max_depth=3,
+        fetcher=routing,
+    )
+    documents = await spider.run_async()
+
+    rendered = [d for d in documents if d.fetcher == "browser"]
+    print(f"{len(documents)} pages, {len(rendered)} rendered "
+          f"({routing.escalations} escalated automatically)")
+
+asyncio.run(main())
+```
+
+Pass `escalate=None` to route purely by pattern, or your own
+`escalate=lambda result: ...` for site-specific signals.
+
+## 26. Stream a Huge Crawl to Disk
+
+Documents hold their full HTML, so a deep crawl can exhaust memory. `flush_to`
+appends each page to a JSONL file the moment it is crawled and keeps nothing
+in RAM beyond the URL bookkeeping. The line format matches
+`Serializers.to_json`, so it loads straight into pandas or polars.
+
+```python
+import asyncio
+import polars as pl
+from linktrace import Spider
+
+async def main():
+    spider = Spider(
+        start_url="https://example.com/",
+        max_depth=6,
+        flush_to="crawl.jsonl",
+        flush_html=False,          # True to keep page source too
+        show_progress=True,
+    )
+    await spider.run_async()       # returns []
+
+    df = pl.read_ndjson("crawl.jsonl")
+    print(df.select("url", "status_code", "fetcher").head())
+
+asyncio.run(main())
+```
+
+`flush_to` combines with a callback or with `retain_documents=True` if you
+also want the objects in memory.
+
+## 27. Write Your Own Fetcher
+
+Any transport can plug into the crawl: subclass `Fetcher`, return a
+`FetchResult`, and raise `TransientFetchError` for failures the Crawler should
+retry. Robots.txt, rate limiting, retries, caching and parsing all keep
+working unchanged.
+
+```python
+import asyncio
+import httpx
+from linktrace import Spider, Fetcher, FetchResult, TransientFetchError
+
+class HttpxFetcher(Fetcher):
+    name = "httpx"
+
+    async def open(self, ctx):
+        self.client = httpx.AsyncClient(
+            http2=True, timeout=ctx.request_timeout,
+            headers={"User-Agent": ctx.user_agent},
+        )
+
+    async def close(self):
+        await self.client.aclose()
+
+    async def fetch(self, url, headers):
+        try:
+            r = await self.client.get(url, headers=headers, follow_redirects=True)
+        except httpx.TimeoutException as e:
+            raise TransientFetchError(str(e)) from e
+        return FetchResult(
+            url, r.status_code, dict(r.headers),
+            body=r.text if r.status_code == 200 else None,
+            fetcher=self.name,
+        )
+
+async def main():
+    spider = Spider("https://example.com/", fetcher=HttpxFetcher())
+    documents = await spider.run_async()
+    print({d.fetcher for d in documents})   # {"httpx"}
 
 asyncio.run(main())
 ```

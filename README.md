@@ -20,6 +20,7 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 - 🎯 **URL filtering rules** — Include/exclude by regex, path prefix, extension, query param, or domain
 - 🎚️ **Configurable concurrency** — Tune `max_concurrency` and connection-pool limits for throughput
 - 🗺️ **Sitemap discovery** — Seed from `sitemap.xml` / robots.txt `Sitemap:`, including nested indexes
+- 🧭 **Pluggable fetchers** — Plain HTTP by default; optional headless-browser rendering (Playwright) for JavaScript SPAs, or route per URL with automatic escalation
 - 📄 **Rich document model** — Full HTML source, parsed links, metadata, headers
 - 🔄 **Persistent sessions** — Connection pooling for 10-100x faster same-domain crawls
 - 🔁 **Retries + backoff** — Exponential backoff for transient errors (timeouts, 5xx)
@@ -32,6 +33,7 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 - 🔀 **Traversal strategies** — BFS (broad) or DFS (deep) crawling
 - 📊 **Multi-format export** — JSON, Pandas, Polars, PyArrow for data analysis
 - 📍 **Callbacks & streaming** — Process results as crawled without memory buildup
+- 🗂️ **Flush to disk** — `flush_to="crawl.jsonl"` streams every page to a JSONL file for crawls too big for RAM
 
 ## Quick Start
 
@@ -63,6 +65,12 @@ pip install linktrace[serializers]  # pandas + polars + pyarrow
 pip install linktrace[pandas]       # Just pandas
 ```
 
+**Optional JavaScript rendering (SPAs):**
+```bash
+pip install linktrace[browser]      # Playwright
+playwright install chromium         # one-time browser download
+```
+
 ## Core Concepts
 
 ### Spider
@@ -85,6 +93,9 @@ Declarative include/exclude policy for which discovered URLs the Spider follows 
 
 ### SitemapParser
 Fetches and parses XML sitemaps (urlsets and nested indexes). Used when `Spider(use_sitemaps=True)`, or directly for sitemap inspection.
+
+### Fetchers
+The pluggable "get me the page" step. `HttpFetcher` (default) uses aiohttp; `BrowserFetcher` renders pages in headless Chromium; `RoutingFetcher` tries HTTP first and escalates to the browser only for pages that look like un-rendered SPA shells. Passed as `Spider(fetcher=...)`.
 
 See [Core Concepts](https://github.com/JayBaywatch/linktrace/blob/main/docs/core-concepts.md) for more.
 
@@ -183,6 +194,34 @@ Sitemap discovery is best-effort — if none exists, ordinary link-following sti
 runs. You can also inspect sitemaps directly via `SitemapParser` or
 `Crawler.discover_sitemap_urls(base_url)`.
 
+### JavaScript-Rendered Sites (SPAs)
+
+Plain HTTP only sees the empty shell of a React/Vue/Angular app. Swap the
+fetcher to render pages in a headless browser (requires `linktrace[browser]`):
+
+```python
+from linktrace import Spider, BrowserFetcher, RoutingFetcher
+
+# Render everything in headless Chromium
+spider = Spider(
+    start_url="https://app.example.com/",
+    fetcher=BrowserFetcher(wait_until="networkidle", max_pages=4),
+)
+
+# Cheaper: plain HTTP first, browser only for pages that look like SPA shells
+spider = Spider(
+    start_url="https://app.example.com/",
+    fetcher=RoutingFetcher(),
+)
+documents = await spider.run_async()
+print({doc.url: doc.fetcher for doc in documents})   # "http" or "browser"
+```
+
+`RoutingFetcher` also takes `render_patterns=[r"/search"]` to send matching
+URLs straight to the browser. Robots.txt, rate limiting, retries and caching
+apply identically whichever fetcher is used. For hash-router apps
+(`/#/listings/42`) add `keep_hash_routes=True` so each route is its own URL.
+
 ### SSL & Corporate Proxies
 
 ```python
@@ -243,8 +282,26 @@ results = await spider.run_async()  # Returns list of URLs
 
 **Return Logic:**
 - No callback → returns all documents (default)
-- Callback + `accumulate_results=False` → returns [] (streaming mode)
+- Callback + `accumulate_results=False` → returns [] (streaming mode; documents are not retained)
 - Callback + `accumulate_results=True` → returns callback results
+
+### Large Crawls: Flush to Disk
+
+For crawls that won't fit in memory, stream each page to a JSONL file as soon
+as it's crawled. Nothing is retained in RAM beyond the URL bookkeeping:
+
+```python
+spider = Spider(
+    start_url="https://example.com",
+    max_depth=5,
+    flush_to="crawl.jsonl",   # one JSON object per line, same schema as to_json()
+    flush_html=False,         # True to include page source
+)
+await spider.run_async()      # returns []
+```
+
+Streaming and flushing default to `retain_documents=False`; pass
+`retain_documents=True` to keep the `Document` list as well.
 
 ### Traversal Strategies
 
@@ -305,6 +362,11 @@ for doc in error_pages:
 # Monitor disallowed pages (403 from robots.txt)
 disallowed = [doc for doc in documents if doc.status_code == 403]
 print(f"Disallowed by robots.txt: {len(disallowed)} pages")
+
+# Which pages link to broken internal pages (populated after the crawl)
+for doc in documents:
+    for broken in doc.broken_internal_links:
+        print(f"{doc.url} -> {broken.url} (HTTP {broken.status_code})")
 ```
 
 Stream crawl status in real-time:
@@ -388,6 +450,9 @@ requests, and consider adding a `request_delay`. Defaults are conservative.
 ### "Crawler hits timeout on deep sites"
 Try DFS traversal instead of BFS, or increase `request_timeout`.
 
+### "No links found on a JavaScript app"
+Use `fetcher=RoutingFetcher()` or `fetcher=BrowserFetcher()` (requires `pip install linktrace[browser]` and `playwright install chromium`).
+
 See [Troubleshooting](https://github.com/JayBaywatch/linktrace/blob/main/docs/troubleshooting.md) for more.
 
 ## Performance
@@ -403,14 +468,17 @@ With persistent sessions + connection pooling, same-domain requests are 10-100x 
 
 ```
 Spider (orchestrator)
-  └─ Crawler (persistent session)
-      ├─ aiohttp (HTTP requests + connection pooling)
+  └─ Crawler (robots.txt, rate limiting, retries, cache, parsing)
+      ├─ Fetcher (pluggable transport)
+      │   ├─ HttpFetcher     — aiohttp (default)
+      │   ├─ BrowserFetcher  — Playwright / headless Chromium
+      │   └─ RoutingFetcher  — HTTP first, browser on escalation
+      ├─ aiohttp session (connection pooling, cookies, SSL; also robots + sitemaps)
       ├─ lxml (HTML parsing)
-      ├─ ResponseCache (optional disk caching)
-      └─ CookieJar (automatic cookie handling)
+      └─ ResponseCache (optional disk caching)
 ```
 
-Spider manages the crawl queue and traversal. Crawler handles individual document fetching/parsing. All requests share one persistent aiohttp session per Spider instance, so connection pooling, cookies, SSL configuration, and DNS caching are reused across the crawl.
+Spider manages the crawl queue and traversal. Crawler handles individual document fetching/parsing and delegates the transport to a Fetcher. All HTTP requests share one persistent aiohttp session per Spider instance, so connection pooling, cookies, SSL configuration, and DNS caching are reused across the crawl.
 
 ## Why linktrace?
 
@@ -428,7 +496,7 @@ That makes `linktrace` useful when your goal is to inspect site structure, trace
 
 **vs requests + BeautifulSoup:** Built-in async concurrency, automatic session reuse, retries, caching, rate limiting, and structured document objects. Better for crawling multiple pages.
 
-**vs Selenium:** Pure HTTP crawler (no JS execution). Faster, lighter, but can't handle dynamic sites.
+**vs Selenium / bare Playwright:** HTTP by default (fast, light), with an optional headless-browser fetcher for JavaScript-rendered sites. You get rendering *plus* the crawl machinery (queue, robots.txt, rate limiting, retries, caching, exports) instead of scripting a browser by hand.
 
 ## Testing
 
@@ -437,7 +505,7 @@ just test          # Run all tests
 just test-cov      # Run with coverage report
 ```
 
-All 122 tests pass. 100% of core crawling paths tested (rate limiting, broken link tracking, robots.txt, callbacks, URL filtering rules, sitemap discovery).
+All 175 tests pass. 100% of core crawling paths tested (rate limiting, broken link tracking, robots.txt, callbacks, URL filtering rules, sitemap discovery, fetchers, flushing). Browser tests run against a local page in headless Chromium and skip automatically when Playwright is not installed.
 
 ## Contributing
 

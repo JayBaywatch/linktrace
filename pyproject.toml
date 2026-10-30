@@ -41,6 +41,9 @@ pandas = ["pandas>=2.0"]
 polars = ["polars>=1.0"]
 pyarrow = ["pyarrow>=14.0"]
 serializers = ["pandas>=2.0", "polars>=1.0", "pyarrow>=14.0"]
+# Headless-browser fetcher for JavaScript-rendered sites (SPAs).
+# After installing, run: playwright install chromium
+browser = ["playwright>=1.45"]
 
 [project.urls]
 Homepage = "https://github.com/JayBaywatch/linktrace"
@@ -62,6 +65,7 @@ dev = [
     "pandas>=2.0",
     "polars>=1.0",
     "pyarrow>=14.0",
+    "playwright>=1.45",
 ]
 
 # Distribution name is "linktrace"; the import package is "linktrace" (the

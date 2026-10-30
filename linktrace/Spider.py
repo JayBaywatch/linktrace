@@ -1,10 +1,13 @@
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from typing import Any, Literal
 
-from linktrace.Crawler import Crawler, Document
+from linktrace.Crawler import BrokenLink, Crawler, Document
+from linktrace.fetchers.base import Fetcher
 from linktrace.rules import CrawlRules
+from linktrace.Serializers import Serializers
 
 
 class Spider:
@@ -37,8 +40,29 @@ class Spider:
         max_connections_per_host: int = 10,
         rules: CrawlRules | None = None,
         use_sitemaps: bool = False,
+        fetcher: Fetcher | None = None,
+        keep_hash_routes: bool = False,
+        flush_to: str | None = None,
+        flush_html: bool = False,
+        retain_documents: bool | None = None,
     ) -> None:
-        start_url = Crawler.normalize_url(start_url)
+        self.fetcher = fetcher
+        self.keep_hash_routes = keep_hash_routes
+
+        # Memory management. ``flush_to`` streams each Document to a JSONL
+        # file as soon as it is crawled. Documents are retained in memory
+        # unless the caller opted into a streaming output (flush_to, or a
+        # callback without accumulate_results) or said so explicitly.
+        self.flush_to = flush_to
+        self.flush_html = flush_html
+        streaming = flush_to is not None or (
+            on_page_crawled is not None and not accumulate_results
+        )
+        self.retain_documents = (
+            retain_documents if retain_documents is not None else not streaming
+        )
+        self._flush_file: Any = None
+        start_url = Crawler.normalize_url(start_url, keep_hash_routes=keep_hash_routes)
         self.start_url = start_url
         self.max_depth = max_depth
         self.ssl_verify = ssl_verify  # bool or str(path to CA cert)
@@ -114,6 +138,22 @@ class Spider:
         else:
             return callback(*args)
 
+    def run(self) -> list[Document]:
+        """Run the spider synchronously (blocking) and return the documents.
+
+        Convenience wrapper around :meth:`run_async` for scripts. Inside an
+        already-running event loop (Jupyter, an async app) use
+        ``await spider.run_async()`` instead.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.run_async())
+        raise RuntimeError(
+            "Spider.run() cannot be called from a running event loop "
+            "(e.g. Jupyter). Use 'await spider.run_async()' instead."
+        )
+
     async def run_async(self) -> list[Document]:
         """Run the spider with persistent session."""
         if self.show_progress:
@@ -128,6 +168,13 @@ class Spider:
             )
 
         try:
+            if self.flush_to is not None:
+                import aiofiles
+
+                self._flush_file = await aiofiles.open(
+                    self.flush_to, "a", encoding="utf-8"
+                )
+
             async with Crawler(
                 log_name=self._logger.name,
                 ssl_verify=self.ssl_verify,
@@ -140,6 +187,8 @@ class Spider:
                 respect_robots_txt=self.respect_robots_txt,
                 max_connections=self.max_connections,
                 max_connections_per_host=self.max_connections_per_host,
+                fetcher=self.fetcher,
+                keep_hash_routes=self.keep_hash_routes,
             ) as crawler:
                 if self.use_sitemaps:
                     await self._seed_from_sitemaps(crawler)
@@ -168,7 +217,13 @@ class Spider:
                             for url, depth in batch
                         ]
                         await asyncio.gather(*tasks)
+
+            self._mark_broken_links()
         finally:
+            if self._flush_file is not None:
+                await self._flush_file.close()
+                self._flush_file = None
+
             if self._pbar is not None:
                 self._pbar.close()
                 self._pbar = None
@@ -177,13 +232,31 @@ class Spider:
             if self.on_crawl_complete is not None:
                 await self._invoke_callback(self.on_crawl_complete)
 
-        # Return logic: Option B
+        # Return logic: documents when retained, else the callback results
+        # (streaming / flushed crawls return an empty list).
         if self.on_page_crawled is None:
             return self.documents
         elif self.accumulate_results:
             return self.accumulated_results
         else:
             return []
+
+    def _mark_broken_links(self) -> None:
+        """Fill ``Document.broken_internal_links`` from crawled status codes.
+
+        Runs once after the crawl. An internal link is broken when the page
+        it points to was crawled and came back with a 4xx/5xx status. External
+        links are never fetched, so ``broken_external_links`` stays empty.
+        Only retained documents are marked; with ``retain_documents=False``
+        (streaming or ``flush_to`` crawls) there is nothing to mark.
+        """
+        status_by_url = {doc.url: doc.status_code for doc in self.documents}
+        for doc in self.documents:
+            doc.broken_internal_links = [
+                BrokenLink(link.url, status_by_url[link.url])
+                for link in doc.internal_links
+                if status_by_url.get(link.url, 0) >= 400
+            ]
 
     async def _seed_from_sitemaps(self, crawler: Crawler) -> None:
         """Seed the queue with URLs discovered from the site's sitemaps.
@@ -201,7 +274,9 @@ class Spider:
         seeded = 0
         async with self.lock:
             for url in urls:
-                norm = Crawler.normalize_url(url)
+                norm = Crawler.normalize_url(
+                    url, keep_hash_routes=self.keep_hash_routes
+                )
                 if norm in self.discovered:
                     continue
                 self.discovered.add(norm)
@@ -239,6 +314,15 @@ class Spider:
                     if self.accumulate_results:
                         self.accumulated_results.append(result)
 
+                if self._flush_file is not None:
+                    await self._flush_document(doc)
+
+                if not self.retain_documents:
+                    # Free the heavy parts now; the Document object itself is
+                    # only referenced by the caller's callback (if any).
+                    doc.source = None
+                    doc.dom = None
+
                 # Add internal links to the queue
                 for link in doc.internal_links:
                     async with self.lock:
@@ -260,8 +344,15 @@ class Spider:
             self.in_progress.discard(url)
 
     def track_visits(self, url: str, doc: Document) -> None:
-        self.documents.append(doc)
+        if self.retain_documents:
+            self.documents.append(doc)
         self.visited.add(url)
+
+    async def _flush_document(self, doc: Document) -> None:
+        """Append ``doc`` as one JSON line to the ``flush_to`` file."""
+        line = json.dumps(Serializers.document_to_dict(doc, self.flush_html))
+        async with self.lock:
+            await self._flush_file.write(line + "\n")
 
 
 if __name__ == "__main__":

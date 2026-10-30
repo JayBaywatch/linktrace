@@ -24,28 +24,39 @@ class Serializers:
             output_path: Path to write JSON file
             include_html: Include raw HTML source in output (default False)
         """
-        data = []
-        for doc in self.documents:
-            doc_data = {
-                "url": doc.url,
-                "title": doc.title,
-                "status_code": doc.status_code,
-                "domain": doc.domain,
-                "response_headers": doc.response_headers,
-                "internal_links": [
-                    {"url": link.url, "text": link.text} for link in doc.internal_links
-                ],
-                "external_links": [
-                    {"url": link.url, "text": link.text} for link in doc.external_links
-                ],
-            }
-            if include_html and doc.source:
-                doc_data["html"] = doc.source
-            data.append(doc_data)
+        data = [self.document_to_dict(doc, include_html) for doc in self.documents]
 
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(data, f, indent=2)
+
+    @staticmethod
+    def document_to_dict(doc: Document, include_html: bool = False) -> dict:
+        """Convert one Document to the nested JSON structure used by ``to_json``.
+
+        Also used by ``Spider(flush_to=...)`` to write one JSON line per page.
+
+        Args:
+            doc: Document to convert
+            include_html: Include raw HTML source under the ``html`` key
+        """
+        doc_data: dict = {
+            "url": doc.url,
+            "title": doc.title,
+            "status_code": doc.status_code,
+            "domain": doc.domain,
+            "fetcher": doc.fetcher,
+            "response_headers": doc.response_headers,
+            "internal_links": [
+                {"url": link.url, "text": link.text} for link in doc.internal_links
+            ],
+            "external_links": [
+                {"url": link.url, "text": link.text} for link in doc.external_links
+            ],
+        }
+        if include_html and doc.source:
+            doc_data["html"] = doc.source
+        return doc_data
 
     def to_pandas(self, include_html: bool = False):
         """Export documents to pandas DataFrame with flattened links.
@@ -139,6 +150,7 @@ class Serializers:
                 "title": doc.title,
                 "status_code": doc.status_code,
                 "domain": doc.domain,
+                "fetcher": doc.fetcher,
             }
 
             if include_html:

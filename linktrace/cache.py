@@ -10,11 +10,16 @@ class CachedResponse:
     """Cached HTTP response data."""
 
     def __init__(
-        self, status_code: int, response_headers: dict[str, str], content: str
+        self,
+        status_code: int,
+        response_headers: dict[str, str],
+        content: str,
+        fetcher: str = "http",
     ) -> None:
         self.status_code = status_code
         self.response_headers = response_headers
         self.content = content
+        self.fetcher = fetcher
 
 
 class ResponseCache:
@@ -31,24 +36,34 @@ class ResponseCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl = ttl_seconds
 
-    def _url_hash(self, url: str) -> str:
-        """Generate cache file name from URL."""
-        return hashlib.sha256(url.encode()).hexdigest()[:16]
+    def _url_hash(self, url: str, namespace: str | None = None) -> str:
+        """Generate cache file name from URL (and optional namespace).
 
-    def _cache_path(self, url: str) -> Path:
+        With no namespace the hash is of the bare URL, so cache directories
+        written by earlier versions keep working. A namespace (e.g. the name of
+        a non-default fetcher) yields a distinct entry for the same URL.
+        """
+        key = url if namespace is None else f"{namespace}:{url}"
+        return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+    def _cache_path(self, url: str, namespace: str | None = None) -> Path:
         """Get cache file path for URL."""
-        return self.cache_dir / f"{self._url_hash(url)}.json"
+        return self.cache_dir / f"{self._url_hash(url, namespace)}.json"
 
-    async def get(self, url: str) -> CachedResponse | None:
+    async def get(
+        self, url: str, *, namespace: str | None = None
+    ) -> CachedResponse | None:
         """Retrieve cached response if not expired.
 
         Args:
             url: URL to retrieve from cache
+            namespace: Optional namespace (e.g. fetcher name) the entry was
+                stored under
 
         Returns:
             CachedResponse if found and not expired, None otherwise
         """
-        cache_file = self._cache_path(url)
+        cache_file = self._cache_path(url, namespace)
         if not cache_file.exists():
             return None
 
@@ -66,6 +81,7 @@ class ResponseCache:
                 status_code=data["status_code"],
                 response_headers=data["response_headers"],
                 content=data["content"],
+                fetcher=data.get("fetcher", "http"),
             )
         except (json.JSONDecodeError, KeyError):
             # Cache file corrupted, remove it
@@ -73,7 +89,14 @@ class ResponseCache:
             return None
 
     async def set(
-        self, url: str, status_code: int, headers: dict[str, str], content: str
+        self,
+        url: str,
+        status_code: int,
+        headers: dict[str, str],
+        content: str,
+        *,
+        namespace: str | None = None,
+        fetcher: str = "http",
     ) -> None:
         """Store response in cache.
 
@@ -82,8 +105,10 @@ class ResponseCache:
             status_code: HTTP status code
             headers: Response headers dict
             content: Response body text
+            namespace: Optional namespace (e.g. fetcher name) to store under
+            fetcher: Name of the fetcher that produced ``content``
         """
-        cache_file = self._cache_path(url)
+        cache_file = self._cache_path(url, namespace)
 
         data = {
             "url": url,
@@ -91,6 +116,7 @@ class ResponseCache:
             "status_code": status_code,
             "response_headers": headers,
             "content": content,
+            "fetcher": fetcher,
         }
 
         try:

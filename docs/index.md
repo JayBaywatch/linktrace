@@ -8,6 +8,8 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 
 **Targeted crawling:** Scope a crawl with [URL filtering rules](getting-started.md#focus-the-crawl-with-filtering-rules) (regex, path, extension, query-param, domain), tune throughput with [configurable concurrency](getting-started.md#tune-concurrency), and seed from a site's [sitemaps](getting-started.md#seed-from-sitemaps).
 
+**JavaScript sites:** Plain HTTP by default, with an optional [headless-browser fetcher](getting-started.md#crawl-a-javascript-rendered-site) for React/Vue/Angular apps. Big crawls can [stream straight to disk](getting-started.md#stream-a-large-crawl-to-disk).
+
 ## Quick Start
 
 ```bash
