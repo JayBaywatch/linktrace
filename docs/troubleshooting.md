@@ -251,6 +251,19 @@ is consistently slow rather than flaky.
 
 ## Memory Issues
 
+### "Response for ... is N bytes; limit is 10485760 bytes"
+
+**Problem:** A page exceeded `max_response_bytes` (default 10 MiB). It is
+logged, dropped (`crawl_document_async` returns `None`) and not retried.
+
+**Solutions:** Raise the limit for a site with genuinely large pages, or
+disable it when you trust the source:
+
+```python
+spider = Spider(start_url="...", max_response_bytes=50 * 1024 * 1024)
+spider = Spider(start_url="...", max_response_bytes=None)   # no limit
+```
+
 ### "Crawl runs out of memory"
 
 **Problem:** Every `Document` holds its HTML (and rendered DOMs are larger),

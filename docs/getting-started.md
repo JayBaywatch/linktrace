@@ -247,7 +247,8 @@ jupyter notebook notebooks/crawl_cnn.ipynb
 - **`crawl_cnn.ipynb`** — basic crawling, link-structure analysis, and exporting
   to JSON / Pandas / Polars / PyArrow
 - **`config_rules_sitemaps.ipynb`** — URL filtering rules, configurable
-  concurrency, and sitemap discovery
+  concurrency, sitemap discovery, crawling a JavaScript-rendered SPA with
+  `RoutingFetcher`, and flushing a crawl to JSONL
 
 ## Next Steps
 

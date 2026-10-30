@@ -35,7 +35,10 @@ Spider(
     keep_hash_routes: bool = False,
     flush_to: str = None,
     flush_html: bool = False,
-    retain_documents: bool = None
+    retain_documents: bool = None,
+    max_response_bytes: int = 10_485_760,
+    cache_ttl: int = 86400,
+    cache_max_bytes: int = None
 )
 ```
 
@@ -71,6 +74,9 @@ Spider(
 | `flush_to` | str | None | Append each crawled page as one JSON line to this file as soon as it is crawled |
 | `flush_html` | bool | False | Include page source in flushed lines |
 | `retain_documents` | bool | None | Keep `Document` objects in memory. Defaults to False when `flush_to` is set or a callback is used without `accumulate_results`, else True |
+| `max_response_bytes` | int | 10 MiB | Largest page body a fetcher may buffer; bigger responses are dropped (not retried). `None` disables |
+| `cache_ttl` | int | 86400 | Seconds a cache entry stays valid |
+| `cache_max_bytes` | int | None | Cap on total cache size on disk; oldest entries are evicted when the Crawler starts |
 
 **Raises:** `ValueError` if `max_concurrency < 1`.
 
@@ -111,8 +117,8 @@ an async application). Use `await spider.run_async()` there.
 |-----------|------|-------------|
 | `start_url` | str | Starting URL |
 | `max_depth` | int | Max crawl depth |
-| `visited` | set | Set of visited URLs |
-| `to_visit` | list | Queue of (url, depth) tuples |
+| `visited` | set | Set of visited URLs (includes redirect targets) |
+| `to_visit` | deque | Frontier of (url, depth) tuples; BFS pops the left end, DFS the right |
 | `documents` | list | Results (accumulated Documents) |
 | `visited_count` | int | Number of pages successfully fetched |
 | `traversal_strategy` | str | "bfs" or "dfs" |
@@ -133,6 +139,9 @@ an async application). Use `await spider.run_async()` there.
 | `keep_hash_routes` | bool | Whether hash-router fragments are preserved |
 | `flush_to` | str \| None | JSONL path pages are streamed to |
 | `retain_documents` | bool | Whether Documents are kept in memory (resolved from the constructor args) |
+| `max_response_bytes` | int \| None | Body size limit passed to the Crawler |
+| `cache_ttl` | int | Cache TTL passed to the Crawler |
+| `cache_max_bytes` | int \| None | Cache size cap passed to the Crawler |
 
 ### Callback Signature
 
@@ -192,7 +201,11 @@ Crawler(
     max_connections: int = 100,
     max_connections_per_host: int = 10,
     fetcher: Fetcher = None,
-    keep_hash_routes: bool = False
+    keep_hash_routes: bool = False,
+    max_response_bytes: int = 10_485_760,
+    backoff_jitter: bool = True,
+    cache_ttl: int = 86400,
+    cache_max_bytes: int = None
 )
 ```
 
@@ -203,7 +216,11 @@ Same as Spider, plus:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `log_level` | int | logging.DEBUG | Logging level |
-| `backoff_factor` | int | 2 | Exponential backoff multiplier (wait_time = 2^attempt * factor) |
+| `backoff_factor` | int | 2 | Exponential backoff multiplier (base wait = 2^attempt * factor) |
+| `backoff_jitter` | bool | True | Draw each wait uniformly from [base/2, base] so concurrent retries spread out |
+| `max_response_bytes` | int | 10 MiB | Largest body a fetcher may buffer; `ResponseTooLarge` drops bigger pages. `None` disables |
+| `cache_ttl` | int | 86400 | Seconds a cache entry stays valid |
+| `cache_max_bytes` | int | None | Cap on total cache size; `prune()` runs on enter |
 | `max_connections` | int | 100 | Total size of the aiohttp connection pool |
 | `max_connections_per_host` | int | 10 | Max simultaneous connections to a single host |
 | `fetcher` | Fetcher | None | Transport used to fetch pages (None = `HttpFetcher()`) |
@@ -213,8 +230,8 @@ Same as Spider, plus:
 
 #### `async __aenter__() -> Crawler`
 
-Enter async context manager. Creates the persistent aiohttp session, then
-calls `fetcher.open(FetchContext)`.
+Enter async context manager. Prunes the cache (if enabled), creates the
+persistent aiohttp session, then calls `fetcher.open(FetchContext)`.
 
 ```python
 async with Crawler(...) as crawler:
@@ -243,10 +260,17 @@ async with Crawler() as crawler:
 
 **Notes:**
 - Checks cache first if `cache_dir` configured
-- Retries `TransientFetchError` and 5xx responses up to `max_retries` times with exponential backoff
-- Returns Document even on 4xx/5xx (check `status_code`); returns `None` when every attempt failed with an error
+- Retries `TransientFetchError` and 5xx responses up to `max_retries` times with jittered exponential backoff
+- Returns Document even on 4xx/5xx (check `status_code`); returns `None` when every attempt failed with an error or the body exceeded `max_response_bytes`
+- Follows redirects; `Document.final_url` holds the served URL and relative links are resolved against it
 - Automatic cookie handling
 - `Document.fetcher` names the fetcher that produced the page
+
+#### `parse_document(url: str, source: str | None, base_url: str = None) -> Document`
+
+Parse HTML into a Document without fetching. `base_url` (default `url`) is the
+URL the content was served from: relative links resolve against it and the
+internal/external split uses its host.
 
 #### `async discover_sitemap_urls(base_url: str) -> List[str]`
 
@@ -274,6 +298,8 @@ async with Crawler() as crawler:
 | `request_timeout` | int | Request timeout in seconds |
 | `max_retries` | int | Max retry attempts |
 | `backoff_factor` | int | Exponential backoff multiplier |
+| `backoff_jitter` | bool | Whether retry waits are jittered |
+| `max_response_bytes` | int \| None | Body size limit handed to the fetcher |
 | `max_connections` | int | Total aiohttp connection pool size |
 | `max_connections_per_host` | int | Max connections to a single host |
 
@@ -302,10 +328,12 @@ recorded on `Document.fetcher` and namespaces cache entries.
 ### FetchResult
 
 ```python
-FetchResult(url: str, status: int, headers: dict = {}, body: str | None = None, fetcher: str = "http")
+FetchResult(url: str, status: int, headers: dict = {}, body: str | None = None, fetcher: str = "http", final_url: str | None = None)
 ```
 
-`body` should be `None` for non-200 responses.
+`body` should be `None` for non-200 responses. `final_url` is the URL actually
+served after redirects; the `redirected` property is true when it differs from
+`url`. Fetchers that cannot tell leave it `None`.
 
 ### FetchContext
 
@@ -317,15 +345,20 @@ Passed to `Fetcher.open`:
 | `request_timeout` | float | Per-request timeout in seconds |
 | `user_agent` | str | User-Agent for the crawl |
 | `ssl_verify` | bool \| str | The Crawler's SSL setting |
+| `max_response_bytes` | int \| None | Body limit a fetcher must enforce by raising `ResponseTooLarge` |
 
 ### HttpFetcher
 
 ```python
-HttpFetcher(session: aiohttp.ClientSession = None)
+HttpFetcher(session: aiohttp.ClientSession = None, *, max_response_bytes=<inherit>)
 ```
 
 The default. One `GET` per URL through the Crawler's session (or the one
-supplied). `name = "http"`.
+supplied). Rejects bodies over the size limit before buffering them: a
+`Content-Length` above the limit is refused outright, otherwise the body is
+read up to limit + 1 bytes. Reports the served URL as `final_url` and logs
+redirect chains at DEBUG. `max_response_bytes` overrides the Crawler's limit
+for this fetcher (`None` disables). `name = "http"`.
 
 ### BrowserFetcher
 
@@ -395,6 +428,7 @@ external `<script src>`.
 
 - `FetchError` — non-retryable fetch failure.
 - `TransientFetchError(FetchError)` — retried by the Crawler with backoff.
+- `ResponseTooLarge(FetchError)` — body exceeded `max_response_bytes`; carries `url`, `limit` and (when known) `size`.
 
 ---
 
@@ -527,6 +561,8 @@ Document(url: str, source: str = None)
 | `status_code` | int | HTTP status code |
 | `response_headers` | dict | HTTP response headers |
 | `fetcher` | str | Name of the fetcher that produced the page (`"http"`, `"browser"`, ...) |
+| `final_url` | str | URL actually served after redirects (equals `url` when none) |
+| `redirected` | bool | Read-only: `final_url != url` |
 | `domain` | str | Domain extracted from URL (read-only property) |
 | `internal_links` | List[HtmlLink] | Links to same domain (successful crawl) |
 | `external_links` | List[HtmlLink] | Links to other domains (successful crawl) |
@@ -721,12 +757,13 @@ Disk-based response caching (used internally by Crawler).
 ### Constructor
 
 ```python
-ResponseCache(cache_dir: str, ttl_seconds: int = 86400)
+ResponseCache(cache_dir: str, ttl_seconds: int = 86400, max_bytes: int = None)
 ```
 
 **Parameters:**
 - `cache_dir` (str) — Directory to store cache files
 - `ttl_seconds` (int) — Time-to-live for entries (default: 1 day)
+- `max_bytes` (int) — Optional cap on total size on disk, enforced by `prune()`
 
 ### Methods
 
@@ -738,8 +775,15 @@ and `None` for plain HTTP, so existing cache directories keep working.
 
 #### `async set(url: str, status_code: int, headers: dict, content: str, *, namespace: str = None, fetcher: str = "http") -> None`
 
-Store response in cache. `fetcher` is recorded and restored onto
-`Document.fetcher` on a cache hit.
+Store response in cache. `fetcher` and `final_url` are recorded and restored
+onto the Document on a cache hit.
+
+#### `async prune() -> int`
+
+Delete entries older than `ttl_seconds` and, if `max_bytes` is set, the oldest
+entries until the directory fits. Uses file modification times, so no entry is
+parsed. The Crawler calls this once on enter. Returns the number of files
+removed.
 
 #### `async clear() -> None`
 

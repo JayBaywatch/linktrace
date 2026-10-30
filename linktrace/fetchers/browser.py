@@ -20,6 +20,7 @@ from linktrace.fetchers.base import (
     Fetcher,
     FetchError,
     FetchResult,
+    ResponseTooLarge,
     TransientFetchError,
 )
 
@@ -101,6 +102,7 @@ class BrowserFetcher(Fetcher):
         self._browser: Any = None
         self._context: Any = None
         self._semaphore: asyncio.Semaphore | None = None
+        self._max_bytes: int | None = None
         self._timeout_ms: float = 30_000
         self._timeout_error: type[Exception] = Exception
         self._playwright_error: type[Exception] = Exception
@@ -116,6 +118,7 @@ class BrowserFetcher(Fetcher):
         self._timeout_error = PlaywrightTimeoutError
         self._playwright_error = PlaywrightError
         self._timeout_ms = (self.timeout or ctx.request_timeout) * 1000
+        self._max_bytes = ctx.max_response_bytes
 
         self._playwright = await async_playwright().start()
         launcher = getattr(self._playwright, self.browser_type)
@@ -205,8 +208,12 @@ class BrowserFetcher(Fetcher):
                 response_headers = (
                     await response.all_headers() if response is not None else {}
                 )
+                final_url = page.url
             finally:
                 await page.close()
+
+        if self._max_bytes is not None and len(body) > self._max_bytes:
+            raise ResponseTooLarge(url, self._max_bytes, len(body))
 
         return FetchResult(
             url=url,
@@ -214,4 +221,5 @@ class BrowserFetcher(Fetcher):
             headers=dict(response_headers),
             body=body if status == 200 else None,
             fetcher=self.name,
+            final_url=final_url,
         )

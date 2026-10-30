@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import ssl
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -70,6 +71,13 @@ class Document:
         # Which fetcher produced ``source``: "http" (raw response) or
         # "browser" (rendered DOM), or a custom fetcher's name.
         self.fetcher: str = "http"
+        # URL actually served after redirects (equals ``url`` when none).
+        self.final_url: str = url
+
+    @property
+    def redirected(self) -> bool:
+        """True if the server redirected this request to a different URL."""
+        return self.final_url != self.url
 
     @property
     def domain(self) -> str:
@@ -107,9 +115,17 @@ class Crawler:
         max_connections_per_host: int = 10,
         fetcher: Fetcher | None = None,
         keep_hash_routes: bool = False,
+        max_response_bytes: int | None = 10 * 1024 * 1024,
+        backoff_jitter: bool = True,
+        cache_ttl: int = 86400,
+        cache_max_bytes: int | None = None,
     ) -> None:
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(log_level)
+
+        # Guard rails for long or adversarial crawls.
+        self.max_response_bytes = max_response_bytes
+        self.backoff_jitter = backoff_jitter
 
         # Pluggable transport. HttpFetcher reproduces the classic behaviour;
         # BrowserFetcher / RoutingFetcher add JavaScript rendering.
@@ -142,7 +158,9 @@ class Crawler:
 
         # Caching (opt-in)
         self.cache: ResponseCache | None = (
-            ResponseCache(cache_dir) if cache_dir else None
+            ResponseCache(cache_dir, ttl_seconds=cache_ttl, max_bytes=cache_max_bytes)
+            if cache_dir
+            else None
         )
 
         # Cookies handled automatically via CookieJar in session (created lazily)
@@ -150,6 +168,11 @@ class Crawler:
 
     async def __aenter__(self) -> "Crawler":
         """Enter async context manager: create session, then open the fetcher."""
+        if self.cache:
+            removed = await self.cache.prune()
+            if removed:
+                self._logger.debug(f"Pruned {removed} expired/excess cache entries")
+
         self.session = await self._create_session()
         try:
             await self.fetcher.open(
@@ -158,6 +181,7 @@ class Crawler:
                     request_timeout=self.request_timeout,
                     user_agent=self.user_agent,
                     ssl_verify=self.ssl_verify,
+                    max_response_bytes=self.max_response_bytes,
                 )
             )
         except Exception:
@@ -289,10 +313,12 @@ class Crawler:
             cached = await self.cache.get(url, namespace=cache_ns)
             if cached:
                 self._logger.debug(f"Cache hit for {url}")
-                doc = self.parse_document(url, cached.content)
+                final_url = cached.final_url or url
+                doc = self.parse_document(url, cached.content, base_url=final_url)
                 doc.status_code = cached.status_code
                 doc.response_headers = cached.response_headers
                 doc.fetcher = cached.fetcher
+                doc.final_url = final_url
                 return doc
 
         # Check robots.txt before fetching
@@ -344,18 +370,28 @@ class Crawler:
         if result is None:  # pragma: no cover - max_retries < 1
             return None
 
+        final_url = url
+        if result.final_url:
+            final_url = self.normalize_url(
+                result.final_url, keep_hash_routes=self.keep_hash_routes
+            )
+            if final_url != url:
+                self._logger.info(f"Redirected: {url} -> {final_url}")
+
         if result.status != 200:
             self._logger.error(f"Failed to fetch {url}: HTTP {result.status}")
             doc = Document(url, None)
             doc.status_code = result.status
             doc.response_headers = result.headers
             doc.fetcher = result.fetcher
+            doc.final_url = final_url
             return doc
 
-        doc = self.parse_document(url, result.body)
+        doc = self.parse_document(url, result.body, base_url=final_url)
         doc.status_code = result.status
         doc.response_headers = result.headers
         doc.fetcher = result.fetcher
+        doc.final_url = final_url
 
         # Cache successful responses
         if self.cache and result.body is not None:
@@ -366,17 +402,30 @@ class Crawler:
                 result.body,
                 namespace=cache_ns,
                 fetcher=result.fetcher,
+                final_url=final_url if final_url != url else None,
             )
 
         return doc
 
+    def _backoff_delay(self, attempt: int) -> float:
+        """Exponential backoff for ``attempt`` (0-based), with equal jitter.
+
+        Base delay is ``2**attempt * backoff_factor``. With jitter enabled the
+        actual wait is uniformly drawn from [base/2, base], so concurrent
+        retries against one host spread out instead of landing together.
+        """
+        base = float(2**attempt * self.backoff_factor)
+        if not self.backoff_jitter:
+            return base
+        return base / 2 + random.uniform(0, base / 2)
+
     async def _backoff(self, url: str, attempt: int, reason: str) -> None:
         """Log and sleep before retrying ``url`` after ``attempt`` (0-based)."""
-        wait_time = 2**attempt * self.backoff_factor
+        wait_time = self._backoff_delay(attempt)
         self._logger.warning(
             f"{reason} fetching {url} "
             f"(attempt {attempt + 1}/{self.max_retries}). "
-            f"Retrying in {wait_time}s..."
+            f"Retrying in {wait_time:.1f}s..."
         )
         await asyncio.sleep(wait_time)
 
@@ -401,11 +450,22 @@ class Crawler:
         parser = SitemapParser(self.session, self.user_agent, self._logger)
         return await parser.discover(base_url, robots_sitemaps or None)
 
-    def parse_document(self, url: str, source: str | None) -> Document:
-        self._protocol_ = urlparse(url).scheme if not urlparse(url).scheme else "http"
-        self.base_uri = urlparse(url).netloc
+    def parse_document(
+        self, url: str, source: str | None, base_url: str | None = None
+    ) -> Document:
+        """Parse ``source`` into a Document for ``url``.
+
+        ``base_url`` is the URL the content was actually served from (after
+        redirects). Relative links are resolved against it and internal vs
+        external classification uses its host, so a ``www`` -> apex redirect
+        does not turn every link on the site into an "external" one.
+        """
+        base = base_url or url
+        self._protocol_ = urlparse(base).scheme or "http"
+        self.base_uri = urlparse(base).netloc
 
         doc = Document(url, source)
+        doc.final_url = base
         if source is None:
             return doc
 
@@ -436,7 +496,7 @@ class Crawler:
             for link in links:
                 link_url = link.attrib["href"]
                 link_url = self.normalize_url(
-                    urljoin(url, link_url), keep_hash_routes=self.keep_hash_routes
+                    urljoin(base, link_url), keep_hash_routes=self.keep_hash_routes
                 )
                 if urlparse(link_url).scheme not in ["http", "https", "ftp"]:
                     continue
@@ -452,7 +512,7 @@ class Crawler:
             doc.internal_links = [
                 link
                 for link in found_links
-                if self.get_domain_parts(link.url) == self.get_domain_parts(doc.url)
+                if self.get_domain_parts(link.url) == self.get_domain_parts(base)
                 or link.url[:1] == "/"
                 or link.url[:1] == ""
             ]
@@ -461,7 +521,7 @@ class Crawler:
             doc.external_links = [
                 link
                 for link in found_links
-                if self.get_domain_parts(link.url) != self.get_domain_parts(doc.url)
+                if self.get_domain_parts(link.url) != self.get_domain_parts(base)
                 and urlparse(link.url).scheme != ""
             ]
             doc.external_links = list(dict.fromkeys(doc.external_links))
@@ -470,6 +530,9 @@ class Crawler:
 
             for link in doc.links:
                 self.queue_link(link.url)
+        except lxml.etree.ParserError:
+            # Empty or whitespace-only body: a valid page with nothing to parse.
+            self._logger.debug(f"Empty document at {url}")
         except lxml.etree.XMLSyntaxError:
             self._logger.error(
                 f"XMLSyntaxError: Invalid source document or truncated source at {url}"

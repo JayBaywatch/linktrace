@@ -15,26 +15,36 @@ class CachedResponse:
         response_headers: dict[str, str],
         content: str,
         fetcher: str = "http",
+        final_url: str | None = None,
     ) -> None:
         self.status_code = status_code
         self.response_headers = response_headers
         self.content = content
         self.fetcher = fetcher
+        self.final_url = final_url
 
 
 class ResponseCache:
     """Disk-based response cache with TTL support."""
 
-    def __init__(self, cache_dir: str, ttl_seconds: int = 86400) -> None:
+    def __init__(
+        self,
+        cache_dir: str,
+        ttl_seconds: int = 86400,
+        max_bytes: int | None = None,
+    ) -> None:
         """Initialize cache.
 
         Args:
             cache_dir: Directory to store cache files
             ttl_seconds: Time-to-live for cached responses (default 1 day)
+            max_bytes: Optional cap on total cache size on disk. ``prune()``
+                evicts the oldest entries beyond it.
         """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.ttl = ttl_seconds
+        self.max_bytes = max_bytes
 
     def _url_hash(self, url: str, namespace: str | None = None) -> str:
         """Generate cache file name from URL (and optional namespace).
@@ -82,6 +92,7 @@ class ResponseCache:
                 response_headers=data["response_headers"],
                 content=data["content"],
                 fetcher=data.get("fetcher", "http"),
+                final_url=data.get("final_url"),
             )
         except (json.JSONDecodeError, KeyError):
             # Cache file corrupted, remove it
@@ -97,6 +108,7 @@ class ResponseCache:
         *,
         namespace: str | None = None,
         fetcher: str = "http",
+        final_url: str | None = None,
     ) -> None:
         """Store response in cache.
 
@@ -107,6 +119,7 @@ class ResponseCache:
             content: Response body text
             namespace: Optional namespace (e.g. fetcher name) to store under
             fetcher: Name of the fetcher that produced ``content``
+            final_url: URL served after redirects, if different
         """
         cache_file = self._cache_path(url, namespace)
 
@@ -117,6 +130,7 @@ class ResponseCache:
             "response_headers": headers,
             "content": content,
             "fetcher": fetcher,
+            "final_url": final_url,
         }
 
         try:
@@ -125,6 +139,49 @@ class ResponseCache:
         except OSError:
             # Silently skip cache write if filesystem issues
             pass
+
+    async def prune(self) -> int:
+        """Delete expired entries and enforce ``max_bytes``.
+
+        Expiry uses the file's modification time, which ``set`` writes at the
+        same moment as the embedded timestamp, so no JSON has to be parsed.
+        Oldest entries go first when the directory exceeds ``max_bytes``.
+        The Crawler calls this once when it is entered, so a long-running or
+        repeated crawl cannot grow the cache without bound.
+
+        Returns:
+            Number of files removed
+        """
+        now = time.time()
+        removed = 0
+        entries: list[tuple[float, int, Path]] = []
+        for path in self.cache_dir.glob("*.json"):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            if now - st.st_mtime > self.ttl:
+                try:
+                    path.unlink()
+                    removed += 1
+                except OSError:
+                    pass
+                continue
+            entries.append((st.st_mtime, st.st_size, path))
+
+        if self.max_bytes is not None:
+            total = sum(size for _, size, _ in entries)
+            for _, size, path in sorted(entries):  # oldest first
+                if total <= self.max_bytes:
+                    break
+                try:
+                    path.unlink()
+                    removed += 1
+                    total -= size
+                except OSError:
+                    pass
+
+        return removed
 
     async def clear(self) -> None:
         """Clear all cached responses."""

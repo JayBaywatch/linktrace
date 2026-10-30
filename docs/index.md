@@ -10,6 +10,8 @@ LinkTrace is a document-oriented crawler. Every crawled page becomes a rich Docu
 
 **JavaScript sites:** Plain HTTP by default, with an optional [headless-browser fetcher](getting-started.md#crawl-a-javascript-rendered-site) for React/Vue/Angular apps. Big crawls can [stream straight to disk](getting-started.md#stream-a-large-crawl-to-disk).
 
+**Built to run for hours:** jittered retries, a response size limit, redirect-aware de-duplication, an O(1) frontier and a self-pruning cache. See [Core Concepts](core-concepts.md#retry-logic).
+
 ## Quick Start
 
 ```bash

@@ -61,7 +61,7 @@ documents = await spider.run_async()
 ### Internal Logic
 
 1. Pop URL from `to_visit` queue (FIFO for BFS, LIFO for DFS)
-2. Skip if visited or exceeds max_depth
+2. Skip if visited or exceeds max_depth (the frontier is a `deque`: O(1) pops from either end)
 3. Tell Crawler to fetch + parse the URL
 4. Add returned Document to results
 5. Extract internal links, add to queue
@@ -91,15 +91,35 @@ async with Crawler(ssl_verify=True, cache_dir=".cache") as crawler:
 Transient errors (timeouts, connection errors, 5xx responses) are retried with exponential backoff. If every attempt returns 5xx, the last response is returned as a Document with that `status_code`:
 
 ```
-wait_time = 2^attempt * backoff_factor
+base      = 2^attempt * backoff_factor
+wait_time = uniform(base / 2, base)        # "equal jitter"
 
-Attempt 1: wait 2s
-Attempt 2: wait 4s  
-Attempt 3: wait 8s
+Attempt 1: base 2s  → wait 1–2s
+Attempt 2: base 4s  → wait 2–4s
+Attempt 3: base 8s  → wait 4–8s
 Attempt 4: fail
 ```
 
-Default: 3 retries, backoff_factor=2.
+Default: 3 retries, backoff_factor=2. The jitter keeps a batch of concurrent
+retries against one host from landing at the same instant; set
+`backoff_jitter=False` for deterministic waits.
+
+### Redirects
+
+aiohttp follows redirects. The Crawler records the served URL as
+`Document.final_url`, logs the hop at INFO, resolves relative links against the
+served URL, and classifies internal vs external by the served host (so a
+`www` → apex redirect does not turn the whole site "external"). The Spider
+marks the redirect target as visited so it is not fetched again under its own
+name.
+
+### Response size limit
+
+`max_response_bytes` (default 10 MiB) bounds how much of a body any fetcher
+will buffer. The HTTP fetcher refuses a larger `Content-Length` before reading
+anything and otherwise stops reading at the limit; the browser fetcher checks
+the rendered DOM. An oversize page raises `ResponseTooLarge`, is logged, and is
+not retried. Set `max_response_bytes=None` to disable.
 
 ### SSL Verification
 
@@ -124,8 +144,10 @@ crawler = Crawler(cache_dir=".webcrawler_cache")
 ```
 
 - Responses stored as `{cache_dir}/{url_hash}.json`
-- Default TTL: 1 day
-- Expired entries auto-deleted on retrieval
+- Default TTL: 1 day (`cache_ttl`)
+- Expired entries auto-deleted on retrieval, and the whole directory is
+  pruned when a Crawler starts; `cache_max_bytes` evicts the oldest entries
+  beyond a size cap
 - Highly effective for repeat crawls (2-50x speedup)
 - Non-default fetchers get their own namespace, so a cached raw HTTP shell is
   never served to a crawl that asked for a rendered page
@@ -414,6 +436,7 @@ linktrace reuses one persistent session across all requests in a single crawl. S
 - 4xx responses (invalid URL, etc)
 - DNS failures
 - SSL errors
+- Responses over `max_response_bytes`
 
 Failed requests log errors but don't crash the crawl. Document is returned with status_code and empty links.
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+from collections import deque
 from collections.abc import Callable
 from typing import Any, Literal
 
@@ -45,9 +46,15 @@ class Spider:
         flush_to: str | None = None,
         flush_html: bool = False,
         retain_documents: bool | None = None,
+        max_response_bytes: int | None = 10 * 1024 * 1024,
+        cache_ttl: int = 86400,
+        cache_max_bytes: int | None = None,
     ) -> None:
         self.fetcher = fetcher
         self.keep_hash_routes = keep_hash_routes
+        self.max_response_bytes = max_response_bytes
+        self.cache_ttl = cache_ttl
+        self.cache_max_bytes = cache_max_bytes
 
         # Memory management. ``flush_to`` streams each Document to a JSONL
         # file as soon as it is crawled. Documents are retained in memory
@@ -95,7 +102,8 @@ class Spider:
         self.visited: set[str] = set()
         self.discovered: set[str] = {start_url}
         self.in_progress: set[str] = set()
-        self.to_visit = [(start_url, 0)]
+        # Frontier: appended at the right; BFS pops left, DFS pops right.
+        self.to_visit: deque[tuple[str, int]] = deque([(start_url, 0)])
         self.documents: list[Document] = []
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(logging.DEBUG)
@@ -189,6 +197,9 @@ class Spider:
                 max_connections_per_host=self.max_connections_per_host,
                 fetcher=self.fetcher,
                 keep_hash_routes=self.keep_hash_routes,
+                max_response_bytes=self.max_response_bytes,
+                cache_ttl=self.cache_ttl,
+                cache_max_bytes=self.cache_max_bytes,
             ) as crawler:
                 if self.use_sitemaps:
                     await self._seed_from_sitemaps(crawler)
@@ -200,8 +211,10 @@ class Spider:
                         for _ in range(batch_size):
                             if not self.to_visit:
                                 break
-                            idx = 0 if self.traversal_strategy == "bfs" else -1
-                            url, current_depth = self.to_visit.pop(idx)
+                            if self.traversal_strategy == "bfs":
+                                url, current_depth = self.to_visit.popleft()
+                            else:
+                                url, current_depth = self.to_visit.pop()
                             if (
                                 url in self.visited
                                 or url in self.in_progress
@@ -295,6 +308,11 @@ class Spider:
             if doc is not None:
                 self.track_visits(url, doc)
                 async with self.lock:
+                    if doc.redirected:
+                        # The served URL is now known content; never fetch it
+                        # again under its own name.
+                        self.discovered.add(doc.final_url)
+                        self.visited.add(doc.final_url)
                     self.visited_count += 1
                     self._logger.info(
                         f"Visited: {url} (Total Visited: {self.visited_count})"

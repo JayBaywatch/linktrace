@@ -39,6 +39,9 @@ class FetchResult:
         body: Page body as text, or ``None`` when the status was not 200.
         fetcher: Name of the fetcher that produced the body (``"http"``,
             ``"browser"``, ...). Recorded on the resulting ``Document``.
+        final_url: URL actually served after any redirects, or ``None`` if
+            the fetcher cannot tell. The Crawler logs redirects and resolves
+            relative links against this URL.
     """
 
     url: str
@@ -46,6 +49,12 @@ class FetchResult:
     headers: dict[str, str] = field(default_factory=dict)
     body: str | None = None
     fetcher: str = "http"
+    final_url: str | None = None
+
+    @property
+    def redirected(self) -> bool:
+        """True when the response came from a different URL than requested."""
+        return self.final_url is not None and self.final_url != self.url
 
 
 @dataclass
@@ -58,12 +67,16 @@ class FetchContext:
         request_timeout: Per-request timeout in seconds.
         user_agent: User-Agent string the crawl identifies itself with.
         ssl_verify: The Crawler's SSL setting (``True``, ``False`` or a CA path).
+        max_response_bytes: Upper bound on a page body. Fetchers must raise
+            :class:`ResponseTooLarge` instead of buffering more than this.
+            ``None`` disables the limit.
     """
 
     session: aiohttp.ClientSession
     request_timeout: float = 30
     user_agent: str = "linktrace/0.1.0"
     ssl_verify: bool | str = True
+    max_response_bytes: int | None = 10 * 1024 * 1024
 
 
 class FetchError(Exception):
@@ -75,6 +88,17 @@ class TransientFetchError(FetchError):
 
     The Crawler retries these with exponential backoff up to ``max_retries``.
     """
+
+
+class ResponseTooLarge(FetchError):
+    """The body exceeded ``FetchContext.max_response_bytes``; not retried."""
+
+    def __init__(self, url: str, limit: int, size: int | None = None) -> None:
+        self.url = url
+        self.limit = limit
+        self.size = size
+        seen = f"{size} bytes" if size is not None else f"more than {limit} bytes"
+        super().__init__(f"Response for {url} is {seen}; limit is {limit} bytes")
 
 
 class Fetcher(ABC):

@@ -5,6 +5,7 @@ from linktrace.fetchers.base import (
     Fetcher,
     FetchError,
     FetchResult,
+    ResponseTooLarge,
     TransientFetchError,
 )
 from linktrace.fetchers.browser import BrowserFetcher
@@ -18,6 +19,7 @@ __all__ = [
     "FetchResult",
     "Fetcher",
     "HttpFetcher",
+    "ResponseTooLarge",
     "RoutingFetcher",
     "TransientFetchError",
     "looks_like_spa_shell",
