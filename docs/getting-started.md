@@ -20,11 +20,20 @@ pip install linktrace[polars]
 pip install linktrace[pyarrow]
 ```
 
+### With JavaScript Rendering
+
+For single-page apps that build their links in the browser:
+
+```bash
+pip install linktrace[browser]
+playwright install chromium     # one-time download of the browser build
+```
+
 ### Development Installation
 
 ```bash
 git clone https://github.com/JayBaywatch/linktrace
-cd webcrawler
+cd linktrace
 pip install -e .
 pip install -e ".[serializers]"  # Optional formats
 ```
@@ -44,6 +53,10 @@ async def main():
 
 asyncio.run(main())
 ```
+
+In a plain script, `Spider(...).run()` does the same without the `asyncio`
+boilerplate. Inside Jupyter or an async application, `await spider.run_async()`
+is the one to use.
 
 ### 2. Inspect Documents
 
@@ -191,6 +204,42 @@ spider = Spider(
 documents = await spider.run_async()
 ```
 
+### Crawl a JavaScript-Rendered Site
+
+Plain HTTP only sees the empty shell of a React/Vue/Angular app. Swap the
+fetcher and the same crawl renders each page in headless Chromium first:
+
+```python
+from linktrace import Spider, RoutingFetcher
+
+spider = Spider(
+    start_url="https://app.example.com/",
+    max_depth=2,
+    fetcher=RoutingFetcher(),   # HTTP first; browser only for SPA-looking pages
+)
+documents = await spider.run_async()
+for doc in documents:
+    print(doc.fetcher, doc.url, len(doc.internal_links))   # "http" or "browser"
+```
+
+Use `fetcher=BrowserFetcher()` to render every page, and
+`keep_hash_routes=True` for hash-router apps (`/#/listings/42`). See
+[Core Concepts](core-concepts.md#fetchers) for how the pieces fit.
+
+### Stream a Large Crawl to Disk
+
+When a crawl won't fit in memory, write each page to a JSONL file as it is
+crawled instead of collecting `Document` objects:
+
+```python
+spider = Spider(
+    start_url="https://example.com/",
+    max_depth=5,
+    flush_to="crawl.jsonl",   # one JSON object per line
+)
+await spider.run_async()      # returns []; results are in crawl.jsonl
+```
+
 ## Jupyter Notebooks
 
 See the `notebooks/` directory for interactive examples:
@@ -202,7 +251,8 @@ jupyter notebook notebooks/crawl_cnn.ipynb
 - **`crawl_cnn.ipynb`** — basic crawling, link-structure analysis, and exporting
   to JSON / Pandas / Polars / PyArrow
 - **`config_rules_sitemaps.ipynb`** — URL filtering rules, configurable
-  concurrency, and sitemap discovery
+  concurrency, sitemap discovery, crawling a JavaScript-rendered SPA with
+  `RoutingFetcher`, and flushing a crawl to JSONL
 
 ## Next Steps
 

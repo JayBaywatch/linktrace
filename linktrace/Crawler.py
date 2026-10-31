@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import ssl
 from urllib.parse import urldefrag, urljoin, urlparse
 
@@ -8,7 +9,16 @@ import lxml.etree
 import lxml.html
 import tldextract
 
+from linktrace._version import DEFAULT_USER_AGENT
 from linktrace.cache import ResponseCache
+from linktrace.fetchers.base import (
+    FetchContext,
+    Fetcher,
+    FetchError,
+    FetchResult,
+    TransientFetchError,
+)
+from linktrace.fetchers.http import HttpFetcher
 from linktrace.robots import RobotsManager
 
 
@@ -59,6 +69,16 @@ class Document:
         self.status_code: int = 0
         self.response_headers: dict[str, str] = {}
         self.dom: object = None
+        # Which fetcher produced ``source``: "http" (raw response) or
+        # "browser" (rendered DOM), or a custom fetcher's name.
+        self.fetcher: str = "http"
+        # URL actually served after redirects (equals ``url`` when none).
+        self.final_url: str = url
+
+    @property
+    def redirected(self) -> bool:
+        """True if the server redirected this request to a different URL."""
+        return self.final_url != self.url
 
     @property
     def domain(self) -> str:
@@ -90,13 +110,30 @@ class Crawler:
         max_retries: int = 3,
         backoff_factor: int = 2,
         request_delay: float = 0.0,
-        user_agent: str = "linktrace/0.1.0",
+        user_agent: str = DEFAULT_USER_AGENT,
         respect_robots_txt: bool = True,
         max_connections: int = 100,
         max_connections_per_host: int = 10,
+        fetcher: Fetcher | None = None,
+        keep_hash_routes: bool = False,
+        max_response_bytes: int | None = 10 * 1024 * 1024,
+        backoff_jitter: bool = True,
+        cache_ttl: int = 86400,
+        cache_max_bytes: int | None = None,
     ) -> None:
         self._logger = logging.getLogger(log_name if log_name else __name__)
         self._logger.setLevel(log_level)
+
+        # Guard rails for long or adversarial crawls.
+        self.max_response_bytes = max_response_bytes
+        self.backoff_jitter = backoff_jitter
+
+        # Pluggable transport. HttpFetcher reproduces the classic behaviour;
+        # BrowserFetcher / RoutingFetcher add JavaScript rendering.
+        self.fetcher: Fetcher = fetcher if fetcher is not None else HttpFetcher()
+        # Keep "#/..." and "#!..." fragments (hash-router SPAs) instead of
+        # stripping every fragment during URL normalization.
+        self.keep_hash_routes = keep_hash_routes
         self.visited_urls: set[str] = set()
         self._queue: list[str] = []
         self._links: list[HtmlLink] = []
@@ -122,15 +159,42 @@ class Crawler:
 
         # Caching (opt-in)
         self.cache: ResponseCache | None = (
-            ResponseCache(cache_dir) if cache_dir else None
+            ResponseCache(cache_dir, ttl_seconds=cache_ttl, max_bytes=cache_max_bytes)
+            if cache_dir
+            else None
         )
 
         # Cookies handled automatically via CookieJar in session (created lazily)
         self._cookie_jar: aiohttp.CookieJar | None = None
 
     async def __aenter__(self) -> "Crawler":
-        """Enter async context manager: create and setup session."""
+        """Enter async context manager: create session, then open the fetcher."""
+        if self.cache:
+            removed = await self.cache.prune()
+            if removed:
+                self._logger.debug(f"Pruned {removed} expired/excess cache entries")
+
         self.session = await self._create_session()
+        try:
+            await self.fetcher.open(
+                FetchContext(
+                    session=self.session,
+                    request_timeout=self.request_timeout,
+                    user_agent=self.user_agent,
+                    ssl_verify=self.ssl_verify,
+                    max_response_bytes=self.max_response_bytes,
+                )
+            )
+        except Exception:
+            # Release whatever the fetcher managed to start (e.g. a browser
+            # process whose context creation failed) before giving up.
+            try:
+                await self.fetcher.close()
+            except Exception:  # pragma: no cover - best-effort teardown
+                pass
+            await self.session.close()
+            self.session = None
+            raise
         return self
 
     async def __aexit__(
@@ -139,9 +203,12 @@ class Crawler:
         exc_val: BaseException | None,
         exc_tb: object,
     ) -> None:
-        """Exit async context manager: cleanup session."""
-        if self.session:
-            await self.session.close()
+        """Exit async context manager: close the fetcher, then the session."""
+        try:
+            await self.fetcher.close()
+        finally:
+            if self.session:
+                await self.session.close()
 
     async def _create_session(self) -> aiohttp.ClientSession:
         """Create persistent aiohttp session with SSL context, connector, timeouts."""
@@ -246,14 +313,19 @@ class Crawler:
                 "Use 'async with Crawler(...) as crawler:' context manager."
             )
 
-        # Check cache first
+        # Check cache first. Non-default fetchers get their own namespace so a
+        # cached raw HTTP shell never satisfies a request for a rendered page.
+        cache_ns = None if self.fetcher.name == HttpFetcher.name else self.fetcher.name
         if self.cache:
-            cached = await self.cache.get(url)
+            cached = await self.cache.get(url, namespace=cache_ns)
             if cached:
                 self._logger.debug(f"Cache hit for {url}")
-                doc = self.parse_document(url, cached.content)
+                final_url = cached.final_url or url
+                doc = self.parse_document(url, cached.content, base_url=final_url)
                 doc.status_code = cached.status_code
                 doc.response_headers = cached.response_headers
+                doc.fetcher = cached.fetcher
+                doc.final_url = final_url
                 return doc
 
         # Check robots.txt before fetching
@@ -270,62 +342,99 @@ class Crawler:
         else:
             delay = self.request_delay
 
-        # Enforce per-domain rate limiting
-        await self._rate_limit_domain(url, delay)
-
-        # Implement retry logic
+        # Fetch with retries. Transient errors and 5xx responses are retried
+        # with exponential backoff; other failures return immediately. The
+        # per-domain rate limit applies to every attempt, not just the first,
+        # so a retry never hits the host sooner than the configured delay.
+        headers = {"User-Agent": self.user_agent}
+        result: FetchResult | None = None
         for attempt in range(self.max_retries):
+            last_attempt = attempt >= self.max_retries - 1
+            await self._rate_limit_domain(url, delay)
             try:
-                headers = {"User-Agent": self.user_agent}
-                async with self.session.get(url, headers=headers) as response:
-                    self._logger.debug(f"Fetching {url} (attempt {attempt + 1})")
-                    status = response.status
-                    response_headers = dict(response.headers)
-
-                    if status != 200:
-                        self._logger.error(f"Failed to fetch {url}: HTTP {status}")
-                        doc = Document(url, None)
-                        doc.status_code = status
-                        doc.response_headers = response_headers
-                        return doc
-
-                    html = await response.text()
-
-                doc = self.parse_document(url, html)
-                doc.status_code = status
-                doc.response_headers = response_headers
-
-                # Cache successful responses
-                if self.cache:
-                    await self.cache.set(url, status, response_headers, html)
-
-                return doc
-
-            except (
-                TimeoutError,
-                aiohttp.ClientConnectorError,
-                aiohttp.ServerTimeoutError,
-            ) as e:
-                if attempt < self.max_retries - 1:
-                    wait_time = 2**attempt * self.backoff_factor
-                    self._logger.warning(
-                        f"Transient error fetching {url} "
-                        f"(attempt {attempt + 1}/{self.max_retries}): {e}. "
-                        f"Retrying in {wait_time}s..."
-                    )
-                    await asyncio.sleep(wait_time)
-                else:
+                self._logger.debug(f"Fetching {url} (attempt {attempt + 1})")
+                result = await self.fetcher.fetch(url, headers)
+            except TransientFetchError as e:
+                if last_attempt:
                     self._logger.error(
                         f"Failed to fetch {url} after {self.max_retries} attempts: {e}"
                     )
-            except aiohttp.ClientError as e:
+                    return None
+                await self._backoff(url, attempt, f"Transient error: {e}")
+                continue
+            except FetchError as e:
                 self._logger.error(f"Client error while fetching {url}: {e}")
-                break
+                return None
             except Exception as e:
                 self._logger.error(f"Unexpected error while fetching {url}: {e}")
                 raise
 
-        return None
+            if 500 <= result.status < 600 and not last_attempt:
+                await self._backoff(url, attempt, f"HTTP {result.status}")
+                continue
+            break
+
+        if result is None:  # pragma: no cover - max_retries < 1
+            return None
+
+        final_url = url
+        if result.final_url:
+            final_url = self.normalize_url(
+                result.final_url, keep_hash_routes=self.keep_hash_routes
+            )
+            if final_url != url:
+                self._logger.info(f"Redirected: {url} -> {final_url}")
+
+        if result.status != 200:
+            self._logger.error(f"Failed to fetch {url}: HTTP {result.status}")
+            doc = Document(url, None)
+            doc.status_code = result.status
+            doc.response_headers = result.headers
+            doc.fetcher = result.fetcher
+            doc.final_url = final_url
+            return doc
+
+        doc = self.parse_document(url, result.body, base_url=final_url)
+        doc.status_code = result.status
+        doc.response_headers = result.headers
+        doc.fetcher = result.fetcher
+        doc.final_url = final_url
+
+        # Cache successful responses
+        if self.cache and result.body is not None:
+            await self.cache.set(
+                url,
+                result.status,
+                result.headers,
+                result.body,
+                namespace=cache_ns,
+                fetcher=result.fetcher,
+                final_url=final_url if final_url != url else None,
+            )
+
+        return doc
+
+    def _backoff_delay(self, attempt: int) -> float:
+        """Exponential backoff for ``attempt`` (0-based), with equal jitter.
+
+        Base delay is ``2**attempt * backoff_factor``. With jitter enabled the
+        actual wait is uniformly drawn from [base/2, base], so concurrent
+        retries against one host spread out instead of landing together.
+        """
+        base = float(2**attempt * self.backoff_factor)
+        if not self.backoff_jitter:
+            return base
+        return base / 2 + random.uniform(0, base / 2)
+
+    async def _backoff(self, url: str, attempt: int, reason: str) -> None:
+        """Log and sleep before retrying ``url`` after ``attempt`` (0-based)."""
+        wait_time = self._backoff_delay(attempt)
+        self._logger.warning(
+            f"{reason} fetching {url} "
+            f"(attempt {attempt + 1}/{self.max_retries}). "
+            f"Retrying in {wait_time:.1f}s..."
+        )
+        await asyncio.sleep(wait_time)
 
     async def discover_sitemap_urls(self, base_url: str) -> list[str]:
         """Discover page URLs from the site's sitemaps.
@@ -348,11 +457,22 @@ class Crawler:
         parser = SitemapParser(self.session, self.user_agent, self._logger)
         return await parser.discover(base_url, robots_sitemaps or None)
 
-    def parse_document(self, url: str, source: str | None) -> Document:
-        self._protocol_ = urlparse(url).scheme if not urlparse(url).scheme else "http"
-        self.base_uri = urlparse(url).netloc
+    def parse_document(
+        self, url: str, source: str | None, base_url: str | None = None
+    ) -> Document:
+        """Parse ``source`` into a Document for ``url``.
+
+        ``base_url`` is the URL the content was actually served from (after
+        redirects). Relative links are resolved against it and internal vs
+        external classification uses its host, so a ``www`` -> apex redirect
+        does not turn every link on the site into an "external" one.
+        """
+        base = base_url or url
+        self._protocol_ = urlparse(base).scheme or "http"
+        self.base_uri = urlparse(base).netloc
 
         doc = Document(url, source)
+        doc.final_url = base
         if source is None:
             return doc
 
@@ -371,14 +491,20 @@ class Crawler:
             links = [
                 link
                 for link in dom.xpath("//a/@href/..")
-                if link.attrib["href"] and link.attrib["href"][:1] not in skip_words
+                if link.attrib["href"]
+                and (
+                    link.attrib["href"][:1] not in skip_words
+                    or self._is_hash_route(link.attrib["href"])
+                )
             ]
 
             # Use local list per document to avoid state leakage
             found_links: list[HtmlLink] = []
             for link in links:
                 link_url = link.attrib["href"]
-                link_url = self.normalize_url(urljoin(url, link_url))
+                link_url = self.normalize_url(
+                    urljoin(base, link_url), keep_hash_routes=self.keep_hash_routes
+                )
                 if urlparse(link_url).scheme not in ["http", "https", "ftp"]:
                     continue
 
@@ -393,7 +519,7 @@ class Crawler:
             doc.internal_links = [
                 link
                 for link in found_links
-                if self.get_domain_parts(link.url) == self.get_domain_parts(doc.url)
+                if self.get_domain_parts(link.url) == self.get_domain_parts(base)
                 or link.url[:1] == "/"
                 or link.url[:1] == ""
             ]
@@ -402,7 +528,7 @@ class Crawler:
             doc.external_links = [
                 link
                 for link in found_links
-                if self.get_domain_parts(link.url) != self.get_domain_parts(doc.url)
+                if self.get_domain_parts(link.url) != self.get_domain_parts(base)
                 and urlparse(link.url).scheme != ""
             ]
             doc.external_links = list(dict.fromkeys(doc.external_links))
@@ -411,6 +537,9 @@ class Crawler:
 
             for link in doc.links:
                 self.queue_link(link.url)
+        except lxml.etree.ParserError:
+            # Empty or whitespace-only body: a valid page with nothing to parse.
+            self._logger.debug(f"Empty document at {url}")
         except lxml.etree.XMLSyntaxError:
             self._logger.error(
                 f"XMLSyntaxError: Invalid source document or truncated source at {url}"
@@ -426,14 +555,25 @@ class Crawler:
         if link not in self.visited_urls and link not in self._queue:
             self._queue.append(link)
 
+    def _is_hash_route(self, href: str) -> bool:
+        """True if ``href`` is a hash-router path we have been told to keep."""
+        return self.keep_hash_routes and href[:2] in ("#/", "#!")
+
     @staticmethod
-    def normalize_url(url: str) -> str:
-        """Strip fragments and normalize an empty path to '/'."""
-        url = urldefrag(url).url
-        parsed = urlparse(url)
+    def normalize_url(url: str, keep_hash_routes: bool = False) -> str:
+        """Strip fragments and normalize an empty path to '/'.
+
+        With ``keep_hash_routes=True``, fragments that look like client-side
+        routes (``#/about``, ``#!/about``) are preserved so hash-router SPAs
+        keep one URL per route instead of collapsing to the bare page.
+        """
+        base, fragment = urldefrag(url)
+        parsed = urlparse(base)
         if parsed.netloc and not parsed.path:
-            url = parsed._replace(path="/").geturl()
-        return url
+            parsed = parsed._replace(path="/")
+        if keep_hash_routes and fragment[:1] in ("/", "!"):
+            parsed = parsed._replace(fragment=fragment)
+        return parsed.geturl()
 
     @staticmethod
     def get_domain_parts(url: str) -> str:

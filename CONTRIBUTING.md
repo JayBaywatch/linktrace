@@ -12,6 +12,10 @@ cd linktrace
 # Create a virtual environment and install in editable mode
 uv sync
 uv pip install -e ".[serializers]"
+
+# Browser (SPA) tests render a local page in headless Chromium.
+# They skip automatically if this one-time download has not been run.
+uv run playwright install chromium
 ```
 
 ## Running Tests

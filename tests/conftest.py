@@ -1,6 +1,50 @@
 """Pytest fixtures and configuration."""
 
+from collections.abc import AsyncIterator, Awaitable, Callable
+
 import pytest
+import pytest_asyncio
+from aiohttp import web
+
+SiteFactory = Callable[[dict[str, str | tuple[int, str]]], Awaitable[str]]
+
+
+@pytest_asyncio.fixture
+async def local_site() -> AsyncIterator[SiteFactory]:
+    """Factory that serves a dict of ``path -> html`` on a local port.
+
+    A value may also be ``(status, html)`` to serve a non-200 response.
+    Returns the base URL (``http://127.0.0.1:<port>``). Used to exercise the
+    real HTTP and browser fetchers without touching the network.
+    """
+    runners: list[web.AppRunner] = []
+
+    async def serve(pages: dict[str, str | tuple[int, str]]) -> str:
+        app = web.Application()
+
+        def make_handler(value: str | tuple[int, str]):
+            status, body = value if isinstance(value, tuple) else (200, value)
+
+            async def handler(request: web.Request) -> web.Response:
+                return web.Response(text=body, status=status, content_type="text/html")
+
+            return handler
+
+        for path, value in pages.items():
+            app.router.add_get(path, make_handler(value))
+
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", 0)
+        await site.start()
+        runners.append(runner)
+        port = runner.addresses[0][1]
+        return f"http://127.0.0.1:{port}"
+
+    yield serve
+
+    for runner in runners:
+        await runner.cleanup()
 
 
 @pytest.fixture

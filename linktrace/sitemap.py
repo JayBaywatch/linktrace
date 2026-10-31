@@ -11,6 +11,8 @@ import logging
 import aiohttp
 import lxml.etree
 
+from linktrace._version import DEFAULT_USER_AGENT
+
 
 class SitemapParser:
     """Fetches and parses XML sitemaps, returning the page URLs they list."""
@@ -18,7 +20,7 @@ class SitemapParser:
     def __init__(
         self,
         session: aiohttp.ClientSession,
-        user_agent: str = "linktrace/0.1.0",
+        user_agent: str = DEFAULT_USER_AGENT,
         logger: logging.Logger | None = None,
         max_sitemaps: int = 50,
         max_depth: int = 5,

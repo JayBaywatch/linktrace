@@ -2,7 +2,7 @@
 
 ## Architecture Overview
 
-linktrace has three main components:
+linktrace has three main components plus a pluggable transport:
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -10,27 +10,27 @@ linktrace has three main components:
 │ - Manages crawl queue (to_visit)                │
 │ - Tracks visited pages                          │
 │ - Implements BFS or DFS traversal               │
-│ - Returns collection of Documents               │
+│ - Returns Documents, or flushes them to disk    │
 └──────────────────┬──────────────────────────────┘
                    │
                    │ creates one persistent
                    │
 ┌──────────────────▼──────────────────────────────┐
-│ Crawler (HTTP Engine)                           │
-│ - Persistent aiohttp session                    │
-│ - Connection pooling                            │
+│ Crawler (Crawl Engine)                          │
+│ - robots.txt + per-domain rate limiting         │
 │ - Retries with exponential backoff              │
 │ - Caching (optional)                            │
-│ - SSL verification                              │
-│ - Cookie jar                                    │
+│ - Link parsing / classification                 │
+│ - Persistent aiohttp session (SSL, cookies)     │
 └──────────────────┬──────────────────────────────┘
+                   │ delegates "get the page" to
                    │
-        ┌──────────┼──────────┐
-        │          │          │
-    ┌───▼──┐  ┌───▼──┐  ┌───▼──┐
-    │aiohttp  │  lxml   │  Cache  │
-    │ (HTTP)  │ (parse) │ (disk)  │
-    └────────┘  └────────┘  └────────┘
+┌──────────────────▼──────────────────────────────┐
+│ Fetcher (Transport)                             │
+│ - HttpFetcher    → aiohttp (default)            │
+│ - BrowserFetcher → Playwright headless Chromium │
+│ - RoutingFetcher → HTTP, escalate to browser    │
+└─────────────────────────────────────────────────┘
 ```
 
 ## Spider
@@ -50,9 +50,9 @@ documents = await spider.run_async()
 - `start_url` — Starting URL for crawl
 - `max_depth` — How many levels deep to follow links
 - `traversal_strategy` — "bfs" (breadth-first) or "dfs" (depth-first)
-- `visited` — Set of visited URLs
-- `to_visit` — Queue of (url, depth) tuples waiting to be crawled
-- `documents` — List of Document objects (results)
+- `visited` — Set of visited URLs (redirect targets included)
+- `to_visit` — `deque` of (url, depth) tuples waiting to be crawled
+- `documents` — List of Document objects (empty when `retain_documents=False`)
 
 ### Methods
 - `run_async()` — Async crawl, returns list of Documents
@@ -61,7 +61,7 @@ documents = await spider.run_async()
 ### Internal Logic
 
 1. Pop URL from `to_visit` queue (FIFO for BFS, LIFO for DFS)
-2. Skip if visited or exceeds max_depth
+2. Skip if visited or exceeds max_depth (the frontier is a `deque`: O(1) pops from either end)
 3. Tell Crawler to fetch + parse the URL
 4. Add returned Document to results
 5. Extract internal links, add to queue
@@ -88,18 +88,42 @@ async with Crawler(ssl_verify=True, cache_dir=".cache") as crawler:
 
 ### Retry Logic
 
-Transient errors (timeouts, connection errors, 5xx responses) are retried with exponential backoff:
+Transient errors (timeouts, connection errors, 5xx responses) are retried with exponential backoff. If every attempt returns 5xx, the last response is returned as a Document with that `status_code`:
 
 ```
-wait_time = 2^attempt * backoff_factor
+base      = 2^attempt * backoff_factor
+wait_time = uniform(base / 2, base)        # "equal jitter"
 
-Attempt 1: wait 2s
-Attempt 2: wait 4s  
-Attempt 3: wait 8s
+Attempt 1: base 2s  → wait 1–2s
+Attempt 2: base 4s  → wait 2–4s
+Attempt 3: base 8s  → wait 4–8s
 Attempt 4: fail
 ```
 
-Default: 3 retries, backoff_factor=2.
+Default: 3 retries, backoff_factor=2. The jitter keeps a batch of concurrent
+retries against one host from landing at the same instant; set
+`backoff_jitter=False` for deterministic waits.
+
+The per-domain rate limit (`request_delay` or the robots.txt `Crawl-delay`)
+applies to every attempt, not just the first, so a retry never reaches the
+host sooner than the configured delay even when the backoff is shorter.
+
+### Redirects
+
+aiohttp follows redirects. The Crawler records the served URL as
+`Document.final_url`, logs the hop at INFO, resolves relative links against the
+served URL, and classifies internal vs external by the served host (so a
+`www` → apex redirect does not turn the whole site "external"). The Spider
+marks the redirect target as visited so it is not fetched again under its own
+name.
+
+### Response size limit
+
+`max_response_bytes` (default 10 MiB) bounds how much of a body any fetcher
+will buffer. The HTTP fetcher refuses a larger `Content-Length` before reading
+anything and otherwise stops reading at the limit; the browser fetcher checks
+the rendered DOM. An oversize page raises `ResponseTooLarge`, is logged, and is
+not retried. Set `max_response_bytes=None` to disable.
 
 ### SSL Verification
 
@@ -124,9 +148,114 @@ crawler = Crawler(cache_dir=".webcrawler_cache")
 ```
 
 - Responses stored as `{cache_dir}/{url_hash}.json`
-- Default TTL: 1 day
-- Expired entries auto-deleted on retrieval
+- Default TTL: 1 day (`cache_ttl`)
+- Expired entries auto-deleted on retrieval, and the whole directory is
+  pruned when a Crawler starts; `cache_max_bytes` evicts the oldest entries
+  beyond a size cap
 - Highly effective for repeat crawls (2-50x speedup)
+- Non-default fetchers get their own namespace, so a cached raw HTTP shell is
+  never served to a crawl that asked for a rendered page
+
+## Fetchers
+
+The **Fetcher** is the one step of a crawl that talks to the outside world:
+given a URL, return a status, headers and body. Everything the Crawler does
+around it (robots.txt, rate limiting, retries, caching, parsing) is transport
+agnostic, so swapping the fetcher is the only change needed to crawl sites
+plain HTTP cannot handle.
+
+```python
+from linktrace import Spider, HttpFetcher, BrowserFetcher, RoutingFetcher
+
+Spider(url)                               # HttpFetcher() — the default
+Spider(url, fetcher=BrowserFetcher())     # render every page in headless Chromium
+Spider(url, fetcher=RoutingFetcher())     # HTTP first, browser when it looks like an SPA
+```
+
+### HttpFetcher (default)
+
+One `GET` per URL through the Crawler's shared aiohttp session. Timeouts and
+connection errors are raised as `TransientFetchError` so the Crawler retries
+them; other client errors are `FetchError` and are not retried.
+
+### BrowserFetcher
+
+Renders each page in a headless browser via [Playwright](https://playwright.dev)
+and returns the resulting DOM. Requires `pip install linktrace[browser]` and a
+one-time `playwright install chromium`. Playwright is imported only when the
+fetcher is opened, so the core package never depends on it.
+
+- One browser and one browser context are shared for the whole crawl; each
+  fetch opens a tab, navigates, waits, serialises the DOM and closes the tab.
+- `max_pages` (default 4) caps concurrent tabs **independently** of the
+  Spider's `max_concurrency`, because a rendered page costs far more than an
+  HTTP request.
+- `wait_until="networkidle"` (default) is the most reliable choice for SPAs.
+  Sites with long-polling connections never go idle; use
+  `wait_until="domcontentloaded"` plus `wait_for_selector="a[href]"` there.
+- Images, media and fonts are blocked by default (`block_resources`) so pages
+  render faster. Pass `block_resources=()` to load everything.
+- `ignore_https_errors` follows the Crawler's `ssl_verify=False`.
+
+Rendered pages have real anchors when the app uses a router (React Router,
+Vue Router, Angular Router, Next.js). Apps that navigate only through click
+handlers expose nothing to extract and remain out of reach.
+
+### RoutingFetcher
+
+Sends every URL to `default` (plain HTTP) first, then re-fetches with
+`fallback` (the browser) when the response looks like an un-rendered SPA
+shell. The built-in `looks_like_spa_shell` heuristic checks for a `<noscript>`
+mentioning JavaScript, an empty mount element such as `<div id="root"></div>`,
+or a page with no anchors but a script bundle.
+
+```python
+RoutingFetcher(
+    render_patterns=[r"/search", r"/map"],   # always render these
+    route=lambda url: "?q=" in url,          # or decide in code
+    escalate=looks_like_spa_shell,           # None disables escalation
+)
+```
+
+`routing.escalations` counts how many pages were re-fetched. The browser is
+only launched when the fetcher is opened, but Playwright must still be
+installed if any URL may reach it.
+
+### Which fetcher produced a Document
+
+`Document.fetcher` records the name (`"http"`, `"browser"`, or a custom
+fetcher's name) and the serializers export it as a `fetcher` column, so a
+DataFrame can tell rendered rows from raw ones. With `BrowserFetcher`,
+`Document.source` is the rendered DOM rather than the raw response.
+
+### Hash-router apps
+
+URL normalization strips fragments, so `/#/about` and `/#/contact` would
+collapse into one page. Pass `keep_hash_routes=True` to keep fragments that
+start with `#/` or `#!` as distinct URLs (plain in-page anchors like `#top`
+are still dropped).
+
+### Writing your own fetcher
+
+Subclass `Fetcher` and implement `fetch`. `open`/`close` are optional hooks
+called once per crawl with a `FetchContext` (the shared aiohttp session,
+timeout, user agent and SSL setting).
+
+```python
+from linktrace import Fetcher, FetchResult, TransientFetchError
+
+class CurlImpersonateFetcher(Fetcher):
+    name = "curl"
+
+    async def fetch(self, url, headers):
+        status, body = await my_client.get(url, headers)   # your transport
+        if status == 429:
+            raise TransientFetchError("rate limited")      # Crawler retries
+        return FetchResult(url, status, body=body if status == 200 else None,
+                           fetcher=self.name)
+```
+
+Robots.txt and sitemap fetches always use plain HTTP regardless of fetcher.
 
 ## Document
 
@@ -139,11 +268,19 @@ class Document:
     source: str                 # Raw HTML
     status_code: int            # HTTP status (200, 404, etc)
     response_headers: dict      # HTTP response headers
+    fetcher: str                # "http", "browser", or a custom fetcher name
     domain: str                 # Domain extracted via tldextract
     internal_links: List[Link]  # Links to same domain
     external_links: List[Link]  # Links to other domains
     links: List[Link]           # All links (internal + external)
+    broken_internal_links: List[BrokenLink]  # Internal links whose target returned 4xx/5xx
 ```
+
+`broken_internal_links` is filled in once the crawl finishes, from the status
+codes of the pages actually visited. Redirect targets count as visited, so a
+link to `/b` is marked when `/b` was only reached via `/a -> /b`; a page that
+was fetched directly always wins over a status learned through a redirect.
+External links are never fetched, so `broken_external_links` stays empty.
 
 ### HtmlLink
 
@@ -305,20 +442,39 @@ linktrace reuses one persistent session across all requests in a single crawl. S
 - 4xx responses (invalid URL, etc)
 - DNS failures
 - SSL errors
+- Responses over `max_response_bytes`
 
 Failed requests log errors but don't crash the crawl. Document is returned with status_code and empty links.
 
 ## Memory Model
 
 Memory usage scales with:
-- Number of pages (each Document ~100KB with HTML)
+- Number of pages (each Document ~100KB with HTML; rendered DOMs from
+  `BrowserFetcher` are typically several times larger)
 - Queue size (larger for BFS on wide sites)
 - Cache size (if enabled)
 
 Typical: ~1MB per 100 pages.
 
-To reduce memory:
-- Disable HTML in Document: don't store `doc.source`
+By default every `Document` (including its HTML) is kept until the crawl
+finishes. Two options change that:
+
+- **Streaming callbacks.** With `on_page_crawled` set and
+  `accumulate_results=False`, documents are handed to your callback and then
+  released: `source` and `dom` are cleared and nothing is appended to
+  `spider.documents`.
+- **Flush to disk.** `flush_to="crawl.jsonl"` appends each page as one JSON
+  object per line (the same schema as `Serializers.to_json`; add
+  `flush_html=True` to include the source) as soon as it is crawled, and
+  likewise retains nothing. A write that fails (disk full, file removed)
+  raises `FlushError` and stops the crawl, so an incomplete file is never
+  mistaken for a finished one.
+
+Both set `retain_documents=False` implicitly; pass `retain_documents=True` to
+keep the in-memory list as well. `broken_internal_links` is only computed for
+retained documents.
+
+To reduce memory further:
 - Use DFS instead of BFS (smaller queue)
 - Disable caching
 - Lower max_depth
@@ -364,3 +520,7 @@ spider = Spider(
 Raise `max_concurrency` and `max_connections` to go faster across **many**
 hosts; keep `max_connections_per_host` modest (and pair with `request_delay` or
 `respect_robots_txt=True`) to avoid overwhelming a single server.
+
+With `BrowserFetcher`, rendered fetches are additionally capped by its own
+`max_pages` (default 4), so a batch of 50 URLs still opens at most 4 tabs at a
+time.

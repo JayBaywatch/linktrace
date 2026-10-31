@@ -6,7 +6,30 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import linktrace
 from linktrace import Crawler, Document, Spider
+
+
+def mock_aiohttp_get(mock_get, status: int, body: str = "") -> None:
+    """Point a patched ``ClientSession.get`` at a canned response.
+
+    The response carries ``.url`` and a readable ``.content`` as well as
+    ``.text`` so it works with the HttpFetcher's size-limited body read.
+    """
+    mock_response = AsyncMock()
+    mock_response.status = status
+    mock_response.headers = {}
+    mock_response.url = "https://example.com/"
+    mock_response.history = []
+    mock_response.text = AsyncMock(return_value=body)
+    # Behave like a real stream: the body, then EOF.
+    mock_response.content.read = AsyncMock(side_effect=[body.encode(), b""])
+    mock_response.get_encoding = lambda: "utf-8"
+
+    mock_cm = AsyncMock()
+    mock_cm.__aenter__.return_value = mock_response
+    mock_cm.__aexit__.return_value = None
+    mock_get.return_value = mock_cm
 
 
 @pytest.mark.asyncio
@@ -92,15 +115,7 @@ class TestRobotsManager:
         crawler = Crawler(user_agent="TestBot/1.0")
         async with crawler:
             with patch("aiohttp.ClientSession.get") as mock_get:
-                mock_response = AsyncMock()
-                mock_response.status = 200
-                mock_response.headers = {}
-                mock_response.text = AsyncMock(return_value="<html></html>")
-
-                mock_cm = AsyncMock()
-                mock_cm.__aenter__.return_value = mock_response
-                mock_cm.__aexit__.return_value = None
-                mock_get.return_value = mock_cm
+                mock_aiohttp_get(mock_get, 200, "<html></html>")
 
                 try:
                     await crawler.crawl_document_async("https://example.com")
@@ -149,14 +164,7 @@ class TestBrokenLinkTracking:
         crawler = Crawler()
         async with crawler:
             with patch("aiohttp.ClientSession.get") as mock_get:
-                mock_response = AsyncMock()
-                mock_response.status = 404
-                mock_response.headers = {}
-
-                mock_cm = AsyncMock()
-                mock_cm.__aenter__.return_value = mock_response
-                mock_cm.__aexit__.return_value = None
-                mock_get.return_value = mock_cm
+                mock_aiohttp_get(mock_get, 404)
 
                 doc = await crawler.crawl_document_async("https://example.com/notfound")
 
@@ -165,18 +173,14 @@ class TestBrokenLinkTracking:
 
     @pytest.mark.asyncio
     async def test_http_5xx_tracked_as_broken(self):
-        """HTTP 5xx responses should return Document with broken link."""
-        crawler = Crawler()
+        """HTTP 5xx responses should return Document with broken link.
+
+        5xx responses are retried with backoff, so use a single attempt here.
+        """
+        crawler = Crawler(max_retries=1)
         async with crawler:
             with patch("aiohttp.ClientSession.get") as mock_get:
-                mock_response = AsyncMock()
-                mock_response.status = 500
-                mock_response.headers = {}
-
-                mock_cm = AsyncMock()
-                mock_cm.__aenter__.return_value = mock_response
-                mock_cm.__aexit__.return_value = None
-                mock_get.return_value = mock_cm
+                mock_aiohttp_get(mock_get, 500)
 
                 doc = await crawler.crawl_document_async("https://example.com/error")
 
@@ -195,7 +199,7 @@ class TestBackwardCompatibility:
     def test_default_user_agent(self):
         """Default user agent should be set."""
         crawler = Crawler()
-        assert crawler.user_agent == "linktrace/0.1.0"
+        assert crawler.user_agent == f"linktrace/{linktrace.__version__}"
 
     def test_default_respect_robots_txt_true(self):
         """Default respect_robots_txt should be True."""
@@ -206,7 +210,7 @@ class TestBackwardCompatibility:
         """Spider should have default rate limiting parameters."""
         spider = Spider(start_url="https://example.com")
         assert spider.request_delay == 0.0
-        assert spider.user_agent == "linktrace/0.1.0"
+        assert spider.user_agent == f"linktrace/{linktrace.__version__}"
         assert spider.respect_robots_txt is True
 
     def test_spider_custom_parameters(self):
@@ -227,17 +231,7 @@ class TestBackwardCompatibility:
         crawler = Crawler()
         async with crawler:
             with patch("aiohttp.ClientSession.get") as mock_get:
-                mock_response = AsyncMock()
-                mock_response.status = 200
-                mock_response.headers = {}
-                mock_response.text = AsyncMock(
-                    return_value="<html><title>Test</title></html>"
-                )
-
-                mock_cm = AsyncMock()
-                mock_cm.__aenter__.return_value = mock_response
-                mock_cm.__aexit__.return_value = None
-                mock_get.return_value = mock_cm
+                mock_aiohttp_get(mock_get, 200, "<html><title>Test</title></html>")
 
                 doc = await crawler.crawl_document_async("https://example.com")
 
