@@ -5,6 +5,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any, Literal
 
+from linktrace._version import DEFAULT_USER_AGENT
 from linktrace.Crawler import BrokenLink, Crawler, Document
 from linktrace.fetchers.base import Fetcher
 from linktrace.rules import CrawlRules
@@ -43,7 +44,7 @@ class Spider:
         on_crawl_complete: Callable[[], None] | None = None,
         accumulate_results: bool = False,
         request_delay: float = 0.0,
-        user_agent: str = "linktrace/0.1.0",
+        user_agent: str = DEFAULT_USER_AGENT,
         respect_robots_txt: bool = True,
         max_concurrency: int = 10,
         max_connections: int = 100,

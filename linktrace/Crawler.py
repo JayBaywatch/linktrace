@@ -9,6 +9,7 @@ import lxml.etree
 import lxml.html
 import tldextract
 
+from linktrace._version import DEFAULT_USER_AGENT
 from linktrace.cache import ResponseCache
 from linktrace.fetchers.base import (
     FetchContext,
@@ -109,7 +110,7 @@ class Crawler:
         max_retries: int = 3,
         backoff_factor: int = 2,
         request_delay: float = 0.0,
-        user_agent: str = "linktrace/0.1.0",
+        user_agent: str = DEFAULT_USER_AGENT,
         respect_robots_txt: bool = True,
         max_connections: int = 100,
         max_connections_per_host: int = 10,

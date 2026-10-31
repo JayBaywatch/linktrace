@@ -1,5 +1,6 @@
 """WebCrawler — async web crawler / spider."""
 
+from linktrace._version import __version__
 from linktrace.cache import ResponseCache
 from linktrace.Crawler import BrokenLink, Crawler, CrawlException, Document, HtmlLink
 from linktrace.fetchers import (
@@ -20,6 +21,7 @@ from linktrace.sitemap import SitemapParser
 from linktrace.Spider import FlushError, Spider
 
 __all__ = [
+    "__version__",
     "BrokenLink",
     "BrowserFetcher",
     "Crawler",

@@ -278,3 +278,15 @@ class TestBrokenLinksViaRedirect:
         home = next(d for d in docs if d.url == "https://x.test/")
         # /b was fetched directly (200) before /a's redirect reported 500 for it.
         assert {b.url for b in home.broken_internal_links} == {"https://x.test/a"}
+
+
+class TestDefaultUserAgentTracksVersion:
+    def test_version_exported_and_used(self):
+        import linktrace
+        from linktrace import Crawler, SitemapParser, Spider
+
+        expected = f"linktrace/{linktrace.__version__}"
+        assert linktrace.__version__ not in ("", "0.1.0")
+        assert Crawler().user_agent == expected
+        assert Spider("https://x.test/").user_agent == expected
+        assert SitemapParser(session=None).user_agent == expected  # type: ignore[arg-type]

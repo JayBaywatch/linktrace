@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import linktrace
 from linktrace import Crawler, Document, Spider
 
 
@@ -198,7 +199,7 @@ class TestBackwardCompatibility:
     def test_default_user_agent(self):
         """Default user agent should be set."""
         crawler = Crawler()
-        assert crawler.user_agent == "linktrace/0.1.0"
+        assert crawler.user_agent == f"linktrace/{linktrace.__version__}"
 
     def test_default_respect_robots_txt_true(self):
         """Default respect_robots_txt should be True."""
@@ -209,7 +210,7 @@ class TestBackwardCompatibility:
         """Spider should have default rate limiting parameters."""
         spider = Spider(start_url="https://example.com")
         assert spider.request_delay == 0.0
-        assert spider.user_agent == "linktrace/0.1.0"
+        assert spider.user_agent == f"linktrace/{linktrace.__version__}"
         assert spider.respect_robots_txt is True
 
     def test_spider_custom_parameters(self):

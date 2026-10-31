@@ -24,6 +24,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from linktrace._version import DEFAULT_USER_AGENT
+
 if TYPE_CHECKING:
     import aiohttp
 
@@ -74,7 +76,7 @@ class FetchContext:
 
     session: aiohttp.ClientSession
     request_timeout: float = 30
-    user_agent: str = "linktrace/0.1.0"
+    user_agent: str = DEFAULT_USER_AGENT
     ssl_verify: bool | str = True
     max_response_bytes: int | None = 10 * 1024 * 1024
 

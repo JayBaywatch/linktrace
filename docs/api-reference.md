@@ -24,7 +24,7 @@ Spider(
     on_crawl_complete: Callable[[], None] = None,
     accumulate_results: bool = False,
     request_delay: float = 0.0,
-    user_agent: str = "linktrace/0.1.0",
+    user_agent: str = "linktrace/<version>",
     respect_robots_txt: bool = True,
     max_concurrency: int = 10,
     max_connections: int = 100,
@@ -62,7 +62,7 @@ Spider(
 | `on_crawl_complete` | Callable | None | Callback when crawl finishes. Supports async for cleanup |
 | `accumulate_results` | bool | False | If True, accumulate callback return values in results list |
 | `request_delay` | float | 0.0 | Minimum seconds between requests to same domain (0 = no forced delay) |
-| `user_agent` | str | "linktrace/0.1.0" | User-Agent header for requests (affects robots.txt rules) |
+| `user_agent` | str | "linktrace/<version>" | User-Agent header for requests (affects robots.txt rules). Default tracks the installed package version |
 | `respect_robots_txt` | bool | True | Parse and respect robots.txt Crawl-delay directives |
 | `max_concurrency` | int | 10 | Max URLs fetched concurrently per batch (must be ≥ 1) |
 | `max_connections` | int | 100 | Total size of the aiohttp connection pool |
@@ -196,7 +196,7 @@ Crawler(
     max_retries: int = 3,
     backoff_factor: int = 2,
     request_delay: float = 0.0,
-    user_agent: str = "linktrace/0.1.0",
+    user_agent: str = "linktrace/<version>",
     respect_robots_txt: bool = True,
     max_connections: int = 100,
     max_connections_per_host: int = 10,
@@ -514,7 +514,7 @@ inspection.
 ```python
 SitemapParser(
     session: aiohttp.ClientSession,
-    user_agent: str = "linktrace/0.1.0",
+    user_agent: str = "linktrace/<version>",
     logger: logging.Logger = None,
     max_sitemaps: int = 50,
     max_depth: int = 5
@@ -526,7 +526,7 @@ SitemapParser(
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `session` | aiohttp.ClientSession | — | Session used to fetch sitemap documents |
-| `user_agent` | str | "linktrace/0.1.0" | User-Agent sent with sitemap requests |
+| `user_agent` | str | "linktrace/<version>" | User-Agent sent with sitemap requests |
 | `logger` | logging.Logger | None | Logger to use (defaults to module logger) |
 | `max_sitemaps` | int | 50 | Hard cap on sitemap documents fetched (guards against huge indexes) |
 | `max_depth` | int | 5 | Max nesting depth for sitemap-index recursion |
